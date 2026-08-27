@@ -1,0 +1,23 @@
+import pytest_asyncio
+from asgi_lifespan import LifespanManager
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from fplguru_api.main import app, get_db
+from fplguru_core.models import Base  # noqa: F401
+
+
+@pytest_asyncio.fixture
+async def client(db_engine):
+    maker = async_sessionmaker(db_engine, expire_on_commit=False)
+
+    async def _override():
+        async with maker() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _override
+    async with LifespanManager(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c
+    app.dependency_overrides.clear()
