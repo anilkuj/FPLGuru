@@ -1470,7 +1470,7 @@ git commit -m "test: FPL-outage error row + fixtures cold-start skip"
 
 - [ ] **Step 1: Add dependencies**
 
-Set `services/api/pyproject.toml` `dependencies = ["fastapi>=0.111", "uvicorn[standard]>=0.30", "fplguru-core"]`, `pip install -r requirements-dev.txt`.
+Set `services/api/pyproject.toml` `dependencies = ["fastapi>=0.111,<1", "uvicorn[standard]>=0.30", "fplguru-core"]`, `pip install -r requirements-dev.txt`.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -1494,11 +1494,13 @@ async def client(db_engine):
             yield session
 
     app.dependency_overrides[get_db] = _override
-    async with LifespanManager(app):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as c:
-            yield c
-    app.dependency_overrides.clear()
+    try:
+        async with LifespanManager(app):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as c:
+                yield c
+    finally:
+        app.dependency_overrides.pop(get_db, None)
 ```
 
 `services/api/tests/test_api.py`:
@@ -1511,6 +1513,16 @@ from fplguru_core.models import DataSyncLog, Gameweek
 async def test_health(client):
     r = await client.get("/health")
     assert r.status_code == 200 and r.json() == {"status": "ok"}
+
+
+async def test_ready(client):
+    r = await client.get("/ready")
+    assert r.status_code == 200 and r.json() == {"status": "ready"}
+
+
+async def test_empty_db_shapes(client):
+    assert (await client.get("/gameweeks")).json() == []
+    assert (await client.get("/gameweeks/current")).json() is None
 
 
 async def test_gameweeks_and_current(client, db_session):
@@ -1539,6 +1551,7 @@ async def test_status_reports_last_sync(client, db_session):
     body = r.json()
     assert body["sources"]["fpl_bootstrap"]["status"] == "ok"
     assert body["sources"]["fpl_bootstrap"]["as_of"].startswith("2025-08-20T12:00:00")
+    assert body["sources"]["fpl_fixtures"] == {"status": "unknown", "as_of": None}
 ```
 
 - [ ] **Step 3: Run test to verify it fails**
@@ -1552,8 +1565,8 @@ Expected: FAIL — `ModuleNotFoundError: fplguru_api.main`.
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
-from sqlalchemy import desc, select
+from fastapi import Depends, FastAPI, HTTPException
+from sqlalchemy import desc, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fplguru_core.db import dispose_engine, get_sessionmaker
@@ -1570,6 +1583,8 @@ app = FastAPI(title="FPLGuru API", version="0.1.0", lifespan=lifespan)
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
+    """Read-only request session. Does NOT commit — a mutating route must
+    manage its own transaction (see fplguru_core.db.session_scope)."""
     async with get_sessionmaker()() as session:
         yield session
 
@@ -1589,6 +1604,15 @@ def _gw(row: Gameweek) -> dict:
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/ready")
+async def ready(db: AsyncSession = Depends(get_db)) -> dict:
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail="database unavailable") from exc
+    return {"status": "ready"}
 
 
 @app.get("/gameweeks")
@@ -1632,7 +1656,7 @@ async def status(db: AsyncSession = Depends(get_db)) -> dict:
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `python -m pytest services/api/tests/test_api.py -v`
-Expected: 4 passed.
+Expected: 5 passed (`test_health`, `test_ready`, `test_empty_db_shapes`, `test_gameweeks_and_current`, `test_status_reports_last_sync`).
 
 - [ ] **Step 6: Manual smoke against real data (optional but recommended)**
 
