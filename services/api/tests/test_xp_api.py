@@ -55,3 +55,16 @@ async def test_xp_horizon_filter(client, db_session):
     await _seed(db_session)
     r = await client.get("/players/11/xp?horizon=1")
     assert [g["horizon_gw"] for g in r.json()["per_gw"]] == [1]
+
+
+def test_model_version_matches_trained_artifact():
+    import json
+    from pathlib import Path
+
+    from fplguru_api.main import _MODEL_VERSION
+
+    repo = Path(__file__).resolve().parents[3]
+    meta = json.loads((repo / "packages/ml/artifacts/basic/meta.json").read_text())
+    assert _MODEL_VERSION == meta["version"], (
+        "api _MODEL_VERSION is out of sync with the committed model artifact"
+    )

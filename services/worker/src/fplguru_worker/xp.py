@@ -24,7 +24,7 @@ from fplguru_core.models import (
 from fplguru_core.settings import get_settings
 from fplguru_ml.features import feature_row_from_history, wmean
 from fplguru_ml.model_basic import BasicXP
-from fplguru_ml.rollout import _BASE_SPREAD, _GROWTH, project_horizon
+from fplguru_ml.rollout import band_halfwidth, project_horizon
 
 logger = logging.getLogger("fplguru.worker")
 
@@ -128,7 +128,7 @@ async def compute_and_store_xp(horizon: int = 5) -> int:
 
             for hz, gw_id in fallbacks:
                 xp = model.baseline(p.position)
-                half = _BASE_SPREAD * (1.0 + _GROWTH * (hz - 1)) / 2.0
+                half = band_halfwidth(hz)
                 rows.append({
                     "player_id": p.id, "gameweek_id": gw_id, "horizon_gw": hz,
                     "model_version": model.version, "xp": xp,
