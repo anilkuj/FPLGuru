@@ -536,11 +536,14 @@ and every `config.get_main_option("sqlalchemy.url")` call is replaced with `_url
 
 - [ ] **Step 3: Autogenerate the initial migration**
 
-Ensure infra is up (`docker compose -f infra/docker-compose.yml up -d`), then:
+Bring infra up and wait for health, then reset the `public` schema of the `fplguru` DB so autogenerate diffs against an empty database (a stale/persisted volume would make it emit an empty migration):
 ```bash
+docker compose -f infra/docker-compose.yml up -d --wait
+docker compose -f infra/docker-compose.yml exec -T postgres \
+  psql -U fplguru -d fplguru -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
 python -m alembic revision --autogenerate -m "initial" --rev-id 0001
 ```
-Expected: creates `alembic/versions/0001_initial.py` with `create_table` for all 5 tables.
+Expected: creates `alembic/versions/0001_initial.py` whose `upgrade()` has `op.create_table(...)` for all 5 tables (`teams`, `gameweeks`, `players`, `fixtures`, `data_sync_log`). If `upgrade()` is empty or `pass`, the schema wasn't clean — re-run the `DROP SCHEMA` line and regenerate.
 
 - [ ] **Step 4: Apply and verify**
 
@@ -554,17 +557,19 @@ docker compose -f infra/docker-compose.yml exec -T postgres psql -U fplguru -d f
 ```
 Expected: lists `teams, gameweeks, players, fixtures, data_sync_log, alembic_version`.
 
-- [ ] **Step 5: Write the shared DB test fixture**
+- [ ] **Step 5: Write the shared DB test fixtures**
 
-`conftest.py` (repo root):
+`conftest.py` (repo root). Tests run against a dedicated `fplguru_test` database (never the dev `fplguru` DB). The autouse `_point_app_at_test_db` fixture sets `FPLGURU_DATABASE_URL` to the test DB and calls `db.reset_state()`, so any app code under test that calls `get_settings()` / `get_sessionmaker()` (Tasks 7, 10) transparently hits `fplguru_test` — no per-test monkeypatching of `get_sessionmaker` needed.
+
 ```python
-import asyncio
 import os
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from fplguru_core import db as _db
 from fplguru_core.models import Base
 
 TEST_DB_URL = os.environ.get(
@@ -575,16 +580,16 @@ TEST_DB_URL = os.environ.get(
 
 @pytest_asyncio.fixture(scope="session")
 async def _engine():
-    # create the test database if missing
+    # create the test database if it doesn't exist yet
     admin_url = TEST_DB_URL.rsplit("/", 1)[0] + "/postgres"
-    admin = create_async_engine(admin_url, isolation_level="AUTOCOMMIT")
     dbname = TEST_DB_URL.rsplit("/", 1)[1]
+    admin = create_async_engine(admin_url, isolation_level="AUTOCOMMIT")
     async with admin.connect() as conn:
-        exists = await conn.exec_driver_sql(
-            "SELECT 1 FROM pg_database WHERE datname = %s", (dbname,)
+        exists = await conn.execute(
+            text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": dbname}
         )
-        if not exists.first():
-            await conn.exec_driver_sql(f'CREATE DATABASE "{dbname}"')
+        if exists.first() is None:
+            await conn.execute(text(f'CREATE DATABASE "{dbname}"'))
     await admin.dispose()
 
     engine = create_async_engine(TEST_DB_URL)
@@ -593,6 +598,14 @@ async def _engine():
         await conn.run_sync(Base.metadata.create_all)
     yield engine
     await engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def _point_app_at_test_db(monkeypatch):
+    monkeypatch.setenv("FPLGURU_DATABASE_URL", TEST_DB_URL)
+    _db.reset_state()
+    yield
+    _db.reset_state()
 
 
 @pytest_asyncio.fixture
@@ -608,8 +621,12 @@ async def _clean_tables(_engine):
     yield
     async with _engine.begin() as conn:
         for table in reversed(Base.metadata.sorted_tables):
-            await conn.exec_driver_sql(f'TRUNCATE TABLE "{table.name}" RESTART IDENTITY CASCADE')
+            await conn.execute(
+                text(f'TRUNCATE TABLE "{table.name}" RESTART IDENTITY CASCADE')
+            )
 ```
+
+> The `Files` list mentions `packages/core/tests/conftest.py` — not needed; the repo-root `conftest.py` is discovered by pytest for every package. Create only the root one.
 
 - [ ] **Step 6: Prove the fixture works**
 
