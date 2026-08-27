@@ -1,0 +1,8 @@
+{
+  "elements": [
+    {"id": 11, "stats": {"minutes": 90, "total_points": 9, "goals_scored": 1, "assists": 0,
+      "clean_sheets": 1, "goals_conceded": 0, "bonus": 2}},
+    {"id": 12, "stats": {"minutes": 0, "total_points": 0, "goals_scored": 0, "assists": 0,
+      "clean_sheets": 0, "goals_conceded": 0, "bonus": 0}}
+  ]
+}

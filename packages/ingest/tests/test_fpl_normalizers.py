@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from fplguru_ingest.fpl import (
+    normalize_event_live,
     normalize_fixtures,
     normalize_gameweeks,
     normalize_players,
@@ -46,3 +47,15 @@ def test_normalize_fixtures_handles_null_event_and_kickoff():
     assert rows[1]["gameweek_id"] is None
     assert rows[1]["kickoff_time"] is None
     assert rows[1]["home_difficulty"] == 4
+
+
+EVENT_LIVE = json.loads((FIX / "event_live_sample.json").read_text())
+
+
+def test_normalize_event_live_maps_stats():
+    rows = normalize_event_live(7, EVENT_LIVE)
+    assert rows[0] == {
+        "player_id": 11, "gameweek_id": 7, "minutes": 90, "total_points": 9,
+        "goals": 1, "assists": 0, "clean_sheets": 1, "goals_conceded": 0, "bonus": 2,
+    }
+    assert rows[1]["minutes"] == 0
