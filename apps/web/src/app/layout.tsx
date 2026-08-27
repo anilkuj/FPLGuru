@@ -24,7 +24,16 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <nav className="border-b px-6 py-3 text-sm flex gap-4">
+          <a href="/" className="font-semibold">FPLGuru</a>
+          <a href="/squad">Squad</a>
+          <span className="text-gray-400">xP</span>
+          <span className="text-gray-400">FDR</span>
+          <span className="text-gray-400">Live</span>
+        </nav>
+        {children}
+      </body>
     </html>
   );
 }
