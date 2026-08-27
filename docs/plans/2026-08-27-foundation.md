@@ -48,15 +48,15 @@
 - Create: `packages/{core,fpl_client,ingest,ml}/src/<pkg>/__init__.py` + each `pyproject.toml`
 - Create: `services/{api,worker}/src/<pkg>/__init__.py` + each `pyproject.toml`
 
-> **Preconditions (already done during repo setup, verify only):** repo is a git repo, current branch is `feature/foundation`, `origin` = `https://github.com/anilkuj/FPLGuru.git`, `.gitignore` exists and contains `.venv/`, `.env`, `data/`, `node_modules/`. Python 3.12 from python.org is on `PATH` (`python --version` → `Python 3.12.x`).
+> **Preconditions (already done during repo setup, verify only):** repo is a git repo, current branch is `feature/foundation`, `origin` = `https://github.com/anilkuj/FPLGuru.git`, `.gitignore` exists and contains `.venv/`, `.env`, `data/`, `node_modules/`. Python 3.12 from python.org is installed and reachable via **`py -3.12`** (the bare `python` command resolves to the Windows Store stub — that is expected; the venv provides a working `python` once activated). A separate Python 3.14 may also be present — ignore it, always pin `py -3.12`.
 
 - [ ] **Step 1: Verify preconditions**
 
 Run:
 ```bash
-git branch --show-current && python --version && cat .gitignore
+git branch --show-current && py -3.12 --version && cat .gitignore
 ```
-Expected: `feature/foundation`, `Python 3.12.x`, `.gitignore` listing `.venv/` `.env` `data/` etc. If Python is missing or not 3.12, STOP and report BLOCKED.
+Expected: `feature/foundation`, `Python 3.12.x`, `.gitignore` listing `.venv/` `.env` `data/` etc. If `py -3.12` fails or reports a different version, STOP and report BLOCKED.
 
 - [ ] **Step 2: Ensure `.gitignore` covers Python venv + build**
 
@@ -143,9 +143,9 @@ Import-name map: core→`fplguru_core`, fpl_client→`fplguru_fpl_client`, inges
 
 Run (from repo root):
 ```bash
-python -m venv .venv
+py -3.12 -m venv .venv
 ```
-Then activate it — **Git Bash:** `source .venv/Scripts/activate` · **PowerShell:** `.venv\Scripts\Activate.ps1` · **cmd:** `.venv\Scripts\activate.bat`. Confirm `python -c "import sys; print(sys.prefix)"` points inside `.venv`. Then:
+Then activate it — **Git Bash:** `source .venv/Scripts/activate` · **PowerShell:** `.venv\Scripts\Activate.ps1` · **cmd:** `.venv\Scripts\activate.bat`. Confirm `python -c "import sys; print(sys.version)"` reports 3.12.x from inside `.venv`. Then:
 ```bash
 python -m pip install --upgrade pip
 python -m pip install -r requirements-dev.txt
@@ -1872,7 +1872,7 @@ git commit -m "feat: next.js PWA shell reading /status with manifest"
 FPL tracking + predictive analytics platform. See `docs/plans/` for the build plan.
 
 ## Prerequisites
-- Python 3.12 (from python.org — with "Add to PATH")
+- Python 3.12 from python.org — reachable as `py -3.12` (bare `python` may hit the Windows Store stub; that's fine)
 - Node 20+ (pnpm comes via `corepack enable`)
 - Docker Desktop (running)
 
@@ -1881,7 +1881,7 @@ FPL tracking + predictive analytics platform. See `docs/plans/` for the build pl
 cp .env.example .env
 docker compose -f infra/docker-compose.yml up -d
 
-python -m venv .venv
+py -3.12 -m venv .venv
 # activate: source .venv/Scripts/activate  (Git Bash) | .venv\Scripts\Activate.ps1 (PowerShell)
 python -m pip install --upgrade pip
 python -m pip install -r requirements-dev.txt
