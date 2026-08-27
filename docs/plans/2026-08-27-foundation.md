@@ -1112,7 +1112,7 @@ import respx
 from sqlalchemy import func, select
 
 from fplguru_core.models import DataSyncLog, Gameweek, Player, Team
-from fplguru_worker.tasks import _sync_bootstrap
+from fplguru_worker.tasks import _run_and_dispose, _sync_bootstrap
 
 BOOTSTRAP = json.loads(
     (Path(__file__).parents[3] / "packages/ingest/tests/fixtures/bootstrap_sample.json").read_text()
@@ -1142,6 +1142,19 @@ async def test_sync_bootstrap_is_idempotent(db_session, monkeypatch):
     await _sync_bootstrap()
     await _sync_bootstrap()
 
+    assert (await db_session.execute(select(func.count()).select_from(Team))).scalar() == 1
+    assert (await db_session.execute(select(func.count()).select_from(Player))).scalar() == 1
+    assert (await db_session.execute(select(func.count()).select_from(DataSyncLog))).scalar() == 2
+
+
+@respx.mock
+async def test_run_and_dispose_allows_a_second_run(db_session, monkeypatch):
+    monkeypatch.setenv("FPLGURU_FPL_API_BASE", BASE)
+    respx.get(f"{BASE}/bootstrap-static/").mock(return_value=httpx.Response(200, json=BOOTSTRAP))
+
+    await _run_and_dispose(_sync_bootstrap)
+    await _run_and_dispose(_sync_bootstrap)  # dispose()+reset_state() between runs must not break run 2
+
     assert (await db_session.execute(select(func.count()).select_from(Player))).scalar() == 1
 ```
 
@@ -1156,89 +1169,127 @@ Expected: FAIL — `ImportError: cannot import name '_sync_bootstrap'`.
 
 ```python
 import asyncio
+import logging
 from datetime import UTC, datetime
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from fplguru_core.db import get_sessionmaker
+from fplguru_core.db import dispose_engine, get_sessionmaker, reset_state
 from fplguru_core.models import DataSyncLog, Fixture, Gameweek, Player, Team
 from fplguru_core.settings import get_settings
 from fplguru_fpl_client import FplClient
 from fplguru_ingest.fpl import (
-    normalize_fixtures, normalize_gameweeks, normalize_players, normalize_teams,
+    normalize_fixtures,
+    normalize_gameweeks,
+    normalize_players,
+    normalize_teams,
 )
 from fplguru_worker.app import celery_app
 
+logger = logging.getLogger("fplguru.worker")
 
-async def _upsert(session, model, rows: list[dict]) -> None:
+
+async def _upsert(session, model, rows: list[dict]) -> int:
     if not rows:
-        return
+        return 0
+    present = set(rows[0])
     stmt = pg_insert(model).values(rows)
     update_cols = {
         c.name: stmt.excluded[c.name]
         for c in model.__table__.columns
-        if c.name not in ("id",)
+        if c.name != "id" and c.name in present
     }
     if "updated_at" in model.__table__.columns:
         update_cols["updated_at"] = func.now()
     stmt = stmt.on_conflict_do_update(index_elements=["id"], set_=update_cols)
     await session.execute(stmt)
+    return len(rows)
 
 
-async def _record(session, source: str, status: str, started: datetime, detail: str = "") -> None:
+async def _record(
+    session, source: str, status: str, started: datetime, detail: str = ""
+) -> None:
     session.add(
         DataSyncLog(
-            source=source, status=status, detail=detail,
-            started_at=started, finished_at=datetime.now(UTC),
+            source=source,
+            status=status,
+            detail=detail,
+            started_at=started,
+            finished_at=datetime.now(UTC),
         )
     )
 
 
+async def _log_error(source: str, started: datetime, exc: Exception) -> None:
+    """Record an error row on a FRESH session so a broken connection on the
+    working session cannot also swallow the audit trail."""
+    logger.exception("%s sync failed", source)
+    try:
+        async with get_sessionmaker()() as session, session.begin():
+            await _record(session, source, "error", started, str(exc)[:500])
+    except Exception:  # noqa: BLE001
+        logger.exception("could not record %s error row", source)
+
+
 async def _sync_bootstrap() -> None:
     started = datetime.now(UTC)
-    client = FplClient(get_settings().fpl_api_base)
     try:
-        data = await client.bootstrap_static()
-    finally:
-        await client.aclose()
-    maker = get_sessionmaker()
-    async with maker() as session:
+        client = FplClient(get_settings().fpl_api_base)
         try:
-            async with session.begin():
-                await _upsert(session, Team, normalize_teams(data))
-                await _upsert(session, Gameweek, normalize_gameweeks(data))
-                await _upsert(session, Player, normalize_players(data))
-                await _record(session, "fpl_bootstrap", "ok", started)
-        except Exception as exc:  # noqa: BLE001
-            async with session.begin():
-                await _record(session, "fpl_bootstrap", "error", started, str(exc)[:500])
-            raise
+            data = await client.bootstrap_static()
+        finally:
+            await client.aclose()
+        async with get_sessionmaker()() as session, session.begin():
+            n_t = await _upsert(session, Team, normalize_teams(data))
+            n_g = await _upsert(session, Gameweek, normalize_gameweeks(data))
+            n_p = await _upsert(session, Player, normalize_players(data))
+            await _record(session, "fpl_bootstrap", "ok", started)
+        logger.info("bootstrap synced: %d teams / %d gameweeks / %d players", n_t, n_g, n_p)
+    except Exception as exc:  # noqa: BLE001
+        await _log_error("fpl_bootstrap", started, exc)
+        raise
 
 
 async def _sync_fixtures() -> None:
     started = datetime.now(UTC)
-    client = FplClient(get_settings().fpl_api_base)
     try:
-        data = await client.fixtures()
-    finally:
-        await client.aclose()
-    maker = get_sessionmaker()
-    async with maker() as session:
+        client = FplClient(get_settings().fpl_api_base)
         try:
-            async with session.begin():
-                await _upsert(session, Fixture, normalize_fixtures(data))
-                await _record(session, "fpl_fixtures", "ok", started)
-        except Exception as exc:  # noqa: BLE001
-            async with session.begin():
-                await _record(session, "fpl_fixtures", "error", started, str(exc)[:500])
-            raise
+            data = await client.fixtures()
+        finally:
+            await client.aclose()
+        async with get_sessionmaker()() as session, session.begin():
+            if not await session.scalar(select(func.count()).select_from(Team)):
+                await _record(
+                    session, "fpl_fixtures", "ok", started,
+                    "skipped: teams not populated yet",
+                )
+                logger.info("fixtures sync skipped: teams table empty")
+                return
+            n = await _upsert(session, Fixture, normalize_fixtures(data))
+            await _record(session, "fpl_fixtures", "ok", started)
+        logger.info("fixtures synced: %d rows", n)
+    except Exception as exc:  # noqa: BLE001
+        await _log_error("fpl_fixtures", started, exc)
+        raise
+
+
+async def _run_and_dispose(coro_fn) -> None:
+    """Run one sync, then drop the process-cached engine so the next Celery
+    task (a fresh event loop via asyncio.run) doesn't reuse asyncpg
+    connections bound to a closed loop."""
+    try:
+        await coro_fn()
+    finally:
+        await dispose_engine()
+        reset_state()
 
 
 @celery_app.task(name="sync_bootstrap", bind=True, max_retries=3, default_retry_delay=60)
 def sync_bootstrap(self) -> None:
     try:
-        asyncio.run(_sync_bootstrap())
+        asyncio.run(_run_and_dispose(_sync_bootstrap))
     except Exception as exc:  # noqa: BLE001
         raise self.retry(exc=exc)
 
@@ -1246,17 +1297,21 @@ def sync_bootstrap(self) -> None:
 @celery_app.task(name="sync_fixtures", bind=True, max_retries=3, default_retry_delay=60)
 def sync_fixtures(self) -> None:
     try:
-        asyncio.run(_sync_fixtures())
+        asyncio.run(_run_and_dispose(_sync_fixtures))
     except Exception as exc:  # noqa: BLE001
         raise self.retry(exc=exc)
 ```
 
 > **DB wiring:** no per-test setup needed. The root `conftest.py`'s autouse `_point_app_at_test_db` already points `get_sessionmaker()` at `fplguru_test`, and these tests request `db_session`, so `db_engine` is live and rows are cleaned between tests. `services/worker/tests/` needs no `conftest.py`.
+>
+> **Deploy note:** run the worker under `-P prefork` (default) or `-P solo`. `asyncio.run()` per task is incompatible with `-P gevent`/`-P eventlet`, and `-P threads` shares the engine across threads. `_run_and_dispose` disposes + resets the cached engine after every run so a fresh `asyncio.run` loop never reuses stale asyncpg connections.
+>
+> **Fetch-failure logging:** `_sync_bootstrap` / `_sync_fixtures` now record an error `DataSyncLog` row (via `_log_error`, fresh session) for **any** failure including the FPL fetch — so Task 9 only needs to add the test that proves it.
 
 - [ ] **Step 6: Run test to verify it passes**
 
 Run: `python -m pytest services/worker/tests/test_sync_bootstrap.py -v`
-Expected: 2 passed.
+Expected: 3 passed.
 
 - [ ] **Step 7: Commit**
 
@@ -1341,23 +1396,25 @@ git commit -m "test: sync_fixtures persistence and beat schedule wiring"
 
 ---
 
-## Task 9: Graceful-degradation error path
+## Task 9: Graceful-degradation error-path test
 
 **Files:**
 - Test: `services/worker/tests/test_sync_error_path.py`
 
-- [ ] **Step 1: Write the failing test**
+Task 7's `_sync_bootstrap`/`_sync_fixtures` already route **every** failure (including the FPL fetch) through `_log_error`, which writes an `error` `DataSyncLog` row on a fresh session and re-raises. This task adds the tests that prove it and that the sync survives the "no teams yet" cold-start path.
+
+- [ ] **Step 1: Write the test**
 
 `services/worker/tests/test_sync_error_path.py`:
 ```python
 import httpx
 import pytest
 import respx
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from fplguru_core.models import DataSyncLog
+from fplguru_core.models import DataSyncLog, Fixture
 from fplguru_fpl_client import FplApiError
-from fplguru_worker.tasks import _sync_bootstrap
+from fplguru_worker.tasks import _sync_bootstrap, _sync_fixtures
 
 BASE = "https://fpl.test/api"
 
@@ -1373,39 +1430,31 @@ async def test_api_outage_logs_error_row_and_reraises(db_session, monkeypatch):
     log = (await db_session.execute(select(DataSyncLog))).scalar_one()
     assert (log.source, log.status) == ("fpl_bootstrap", "error")
     assert "503" in log.detail
+
+
+@respx.mock
+async def test_fixtures_sync_skips_cleanly_when_no_teams(db_session, monkeypatch):
+    monkeypatch.setenv("FPLGURU_FPL_API_BASE", BASE)
+    respx.get(f"{BASE}/fixtures/").mock(return_value=httpx.Response(200, json=[]))
+
+    await _sync_fixtures()  # teams table empty -> no FK violation, logs "ok/skipped"
+
+    assert (await db_session.execute(select(func.count()).select_from(Fixture))).scalar() == 0
+    log = (await db_session.execute(select(DataSyncLog))).scalar_one()
+    assert (log.source, log.status) == ("fpl_fixtures", "ok")
+    assert "skipped" in log.detail
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `python -m pytest services/worker/tests/test_sync_error_path.py -v`
-Expected: FAIL — currently the FPL error is raised *before* the session opens, so no `DataSyncLog` row is written.
-
-- [ ] **Step 3: Fix `_sync_bootstrap` / `_sync_fixtures` to log fetch failures**
-
-In `tasks.py`, wrap the fetch so a fetch failure also records a row. Replace the fetch block in both `_sync_bootstrap` and `_sync_fixtures` with:
-```python
-    maker = get_sessionmaker()
-    client = FplClient(get_settings().fpl_api_base)
-    try:
-        data = await client.bootstrap_static()   # or client.fixtures()
-    except Exception as exc:  # noqa: BLE001
-        async with maker() as session, session.begin():
-            await _record(session, "fpl_bootstrap", "error", started, str(exc)[:500])
-        raise
-    finally:
-        await client.aclose()
-```
-
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 2: Run**
 
 Run: `python -m pytest services/worker/tests/ -v`
-Expected: all worker tests pass (5 tests across 4 files).
+Expected: all worker tests pass (8 across 4 files: 3 sync_bootstrap + 1 sync_fixtures + 1 beat + 2 error-path... adjust the count to what's actually there — the point is 0 failures).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add -A -- ':!docs'
-git commit -m "feat: record DataSyncLog error row when FPL API is unavailable"
+git commit -m "test: FPL-outage error row + fixtures cold-start skip"
 ```
 
 ---
