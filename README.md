@@ -18,6 +18,7 @@ packages/fpl_client    typed async client for the official FPL API (retry/backof
 packages/ingest        pure fetch→row normalizers (FPL bootstrap/fixtures + historical CSV)
 packages/ml            (stub — xP engine lands in a later sub-plan)
 services/api           FastAPI: /health /ready /gameweeks /gameweeks/current /status
+                       /link/{id} /entries/{id}[/history] /xp /players/{id}/xp /fdr
 services/worker        Celery worker + Beat: sync_bootstrap / sync_fixtures
 apps/web               Next.js 16 (App Router) PWA shell
 alembic/               async migrations
@@ -102,6 +103,19 @@ python scripts/backtest_xp.py --csv data/historical/2024-25_merged_gw.csv
 #   GET /xp?horizon=5              -> all players, ranked by cumulative xP
 #   GET /players/{id}/xp?horizon=5 -> per-gameweek breakdown + floor/ceiling
 ```
+
+## Fixture difficulty (FDR)
+
+Platform-computed FDR per team — FPL opponent strength tier blended with recent
+goals-for / goals-against form, split into attack (`att_fdr`) and defence (`def_fdr`)
+scores plus a 1–5 `band`. Horizon 1–10, available to everyone.
+
+```bash
+#   GET /fdr?horizon=5            -> every team, easiest fixtures first
+#   GET /fdr?horizon=8&start_gw=12
+```
+
+xG-for/against and clean-sheet-probability columns arrive with the Advanced data tier (P2a).
 
 Latest backtest: [`docs/xp-backtest/2026-08-27.md`](docs/xp-backtest/2026-08-27.md) — all four
 position groups beat the naive-mean baseline.
