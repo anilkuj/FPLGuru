@@ -1,0 +1,13 @@
+-e ./packages/core
+-e ./packages/fpl_client
+-e ./packages/ingest
+-e ./packages/ml
+-e ./services/api
+-e ./services/worker
+
+pytest>=8.2
+pytest-asyncio>=0.23
+respx>=0.21
+httpx>=0.27
+asgi-lifespan>=2.1
+alembic>=1.13
