@@ -48,7 +48,7 @@ Per player-GW, all computed from data strictly **before** the target GW:
 
 Target: `total_points` in the target GW. **One ridge model per position group** (GK/DEF/MID/FWD) — position itself is not a feature.
 
-"Appearance" = a player-GW row with `minutes > 0`. Players with fewer than 3 prior appearances get NaN features → dropped from training; at serve time they fall back to a position-mean prediction (Task 9).
+"Appearance" = a player-GW row with `minutes > 0`. Players with fewer than 3 prior appearances get NaN features → dropped from **training**; at **serve** time (`compute_xp`) they get a **cold-start fallback**: `xp = BasicXP.baseline(position)` (the training-set mean points for that position, else global mean) with a widening band. This keeps `/xp` populated for every active player from GW1. (Added in "Task 12b".)
 
 ---
 
