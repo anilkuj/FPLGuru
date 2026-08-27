@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Last updated:** 2026-08-27, mid-execution.
-**Branch:** `feature/foundation` (30 commits ahead of `main`; nothing pushed).
-**Remote:** `origin` = https://github.com/anilkuj/FPLGuru.git (only `main` with the two plan docs is pushed).
+**Status:** ✅ **Foundation complete.** All 14 tasks done + final review + ruff cleanup. Opened as **PR [anilkuj/FPLGuru#1](https://github.com/anilkuj/FPLGuru/pull/1)** (`feature/foundation` → `main`), pushed. Awaiting first CI run + merge.
+**Last updated:** 2026-08-27.
+**Branch:** `feature/foundation` (~42 commits ahead of `main`), pushed to `origin`.
 
 ---
 
@@ -35,8 +35,9 @@ The master roadmap for everything *after* Foundation is [`docs/plans/2026-08-27-
 | 13 | Next.js PWA shell (`apps/web/`, Next 16.3.3 / React 19 / Tailwind v4 / Vitest 4) | ✅ | `e00346b` |
 | 14 | `README.md` + acceptance checklist (+ `sync_all()` one-loop populate helper) | ✅ | `d14fc23` |
 | — | Final whole-branch review | ✅ | verdict: READY AFTER BLOCKING FIXES |
-| — | Fix 39 `ruff` errors (isort/bugbear config, line wraps, B904, dead noqa) | 🔧 in progress | — |
-| — | Merge `feature/foundation` → `main` | ⬜ next | — |
+| — | Fix 39 `ruff` errors (isort/bugbear config, line wraps, B904, dead noqa) | ✅ | `803e731` |
+| — | Push branch + open PR #1 → `main` | ✅ | — |
+| — | Review CI on PR #1, then merge | ⬜ next | — |
 
 **Final review notes (all 14 tasks green):** 34 tests pass deterministically under `-W error`, 0 skips; no model↔migration drift (`alembic check` clean); env-var naming consistent; no secrets. The one blocker was `ruff check .` (never run locally due to SAC) → 39 errors that would red the CI `python` job. Being fixed now. Non-blocking follow-ups: `apps/web` manifest references icon PNGs that don't exist yet (deferred to sub-plan P1h), create-next-app scaffold SVGs unused, a test that runs `alembic upgrade head` against the test DB would close the create_all-vs-migrations gap.
 
@@ -54,7 +55,7 @@ The dev machine has **Smart App Control (SAC) ON**. SAC blocks unsigned/unknown 
 | Python | **3.12.10** from python.org, reachable only as **`py -3.12`** (bare `python` = Windows Store stub until a venv is active). A separate 3.14 is also installed — always pin `py -3.12`. |
 | venv | `.venv/` at repo root. Create with `py -3.12 -m venv .venv`. After activation, `python` = the venv's 3.12. |
 | deps | One root `requirements-dev.txt` = `-e ./packages/*` + `-e ./services/*` + test deps. Each package's own deps live in its `pyproject.toml`. Root `pyproject.toml` is config-only (pytest + ruff). |
-| `ruff` | **CI-only** (Linux runners, no SAC). Not installed in the venv; do not try to run it locally. |
+| `ruff` | Runs in CI. **Also works locally** via `python -m ruff` (`ruff`'s bundled binary is NOT SAC-blocked — only `uv.exe` was). `python -m pip install "ruff==0.6.*"` if you want it in the venv. |
 | `pnpm` | Not installed. Get it in Task 13 via `corepack enable` (Node 25 is present). |
 | Docker | Docker Desktop installed & running. Compose project name is **`fplguru`** (`docker compose -f infra/docker-compose.yml ...`), containers `fplguru-postgres-1` / `fplguru-redis-1`. |
 | `numpy` | **SAC blocks `numpy` 2.5.x** (`numpy/random/_sfc64.pyd` → "Application Control policy has blocked this file"), which breaks `import pandas`. Pinned `numpy>=2.2,<2.5` in `packages/ingest/pyproject.toml`. 2.2.6 works. |
