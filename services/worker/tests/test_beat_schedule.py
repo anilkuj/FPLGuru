@@ -5,4 +5,5 @@ def test_beat_schedule_registers_both_sync_jobs():
     sched = celery_app.conf.beat_schedule
     assert sched["sync-bootstrap"]["task"] == "sync_bootstrap"
     assert sched["sync-fixtures"]["task"] == "sync_fixtures"
+    assert sched["sync-gw-stats"]["task"] == "sync_gw_stats"
     assert sched["sync-bootstrap"]["schedule"] <= 900.0
