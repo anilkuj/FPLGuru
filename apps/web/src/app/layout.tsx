@@ -30,7 +30,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <a href="/squad">Squad</a>
           <span className="text-gray-400">xP</span>
           <a href="/fdr">FDR</a>
-          <span className="text-gray-400">Live</span>
+          <a href="/live">Live</a>
         </nav>
         {children}
       </body>

@@ -78,3 +78,37 @@ export function getFdr(base: string, horizon: number, startGw?: number) {
   if (startGw) q.set("start_gw", String(startGw));
   return fetch(`${base}/fdr?${q}`, { cache: "no-store" }).then(asJson<FdrGridData>);
 }
+
+export type LiveFixture = {
+  id: number;
+  home_team_id: number;
+  away_team_id: number;
+  home_score: number | null;
+  away_score: number | null;
+  started: boolean;
+  finished: boolean;
+  minutes: number;
+};
+export type LivePlayer = {
+  player_id: number;
+  web_name: string;
+  team_id: number;
+  position: string;
+  minutes: number;
+  live_points: number;
+  bps: number;
+  projected_bonus: number;
+  total_points: number;
+};
+export type LiveSnapshot = {
+  gameweek_id: number | null;
+  updated_at: string | null;
+  fixtures: LiveFixture[];
+  players: LivePlayer[];
+};
+
+export function getLive(base: string) {
+  return fetch(`${base}/gameweeks/current/live`, { cache: "no-store" }).then(
+    asJson<LiveSnapshot>,
+  );
+}
