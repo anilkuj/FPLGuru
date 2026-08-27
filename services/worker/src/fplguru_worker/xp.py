@@ -24,7 +24,7 @@ from fplguru_core.models import (
 from fplguru_core.settings import get_settings
 from fplguru_ml.features import feature_row_from_history, wmean
 from fplguru_ml.model_basic import BasicXP
-from fplguru_ml.rollout import project_horizon
+from fplguru_ml.rollout import _BASE_SPREAD, _GROWTH, project_horizon
 
 logger = logging.getLogger("fplguru.worker")
 
@@ -91,39 +91,56 @@ async def compute_and_store_xp(horizon: int = 5) -> int:
             side[(f.gameweek_id, f.away_team_id)] = (False, f.home_team_id)
 
         rows: list[dict] = []
+        n_real = 0
+        n_fallback = 0
         for p in players:
             h = history.get(p.id, [])
-            if len(h) < 3:
-                continue
             triples: list[tuple[int, int, dict]] = []   # (horizon_gw, gameweek_id, feature_row)
+            fallbacks: list[tuple[int, int]] = []       # (horizon_gw, gameweek_id)
             for hz, g in enumerate(future_gws, start=1):
                 sd = side.get((g.id, p.team_id))
                 if sd is None:
                     continue   # blank gameweek for this team
                 was_home, opp = sd
                 opp_vals = conceded.get((opp, p.position), [])
-                fr = feature_row_from_history(
-                    h[-5:], was_home=was_home, value=p.now_cost,
-                    opp_conceded_to_pos_5=(wmean(opp_vals[-5:], 5) if opp_vals else 0.0),
-                )
+                fr = None
+                if len(h) >= 3:
+                    fr = feature_row_from_history(
+                        h[-5:], was_home=was_home, value=p.now_cost,
+                        opp_conceded_to_pos_5=(wmean(opp_vals[-5:], 5) if opp_vals else 0.0),
+                    )
                 if fr is None:
-                    continue
-                triples.append((hz, g.id, fr))
-            if not triples:
-                continue
-            proj = project_horizon(p.position, [t[2] for t in triples], model)
-            for (hz, gw_id, _), gp in zip(triples, proj.per_gw, strict=False):
+                    fallbacks.append((hz, g.id))   # thin history OR unbuildable row
+                else:
+                    triples.append((hz, g.id, fr))
+
+            if triples:
+                proj = project_horizon(p.position, [t[2] for t in triples], model)
+                for (hz, gw_id, _), gp in zip(triples, proj.per_gw, strict=False):
+                    rows.append({
+                        "player_id": p.id, "gameweek_id": gw_id, "horizon_gw": hz,
+                        "model_version": model.version, "xp": gp.xp,
+                        "x_minutes": 0.0, "x_goals": 0.0, "x_assists": 0.0,
+                        "x_cs_or_gc": 0.0, "x_bonus": 0.0,
+                        "xp_floor": gp.floor, "xp_ceiling": gp.ceiling,
+                    })
+                    n_real += 1
+
+            for hz, gw_id in fallbacks:
+                xp = model.baseline(p.position)
+                half = _BASE_SPREAD * (1.0 + _GROWTH * (hz - 1)) / 2.0
                 rows.append({
                     "player_id": p.id, "gameweek_id": gw_id, "horizon_gw": hz,
-                    "model_version": model.version, "xp": gp.xp,
+                    "model_version": model.version, "xp": xp,
                     "x_minutes": 0.0, "x_goals": 0.0, "x_assists": 0.0,
                     "x_cs_or_gc": 0.0, "x_bonus": 0.0,
-                    "xp_floor": gp.floor, "xp_ceiling": gp.ceiling,
+                    "xp_floor": xp - half, "xp_ceiling": xp + half,
                 })
+                n_fallback += 1
 
         await _upsert_predictions(session, rows)
         session.add(DataSyncLog(source="xp_compute", status="ok",
-                                detail=f"{len(rows)} predictions",
+                                detail=f"{n_real} modelled + {n_fallback} cold-start",
                                 started_at=started, finished_at=datetime.now(UTC)))
     logger.info("xp computed: %d predictions over %d gameweeks", len(rows), len(future_gws))
     return len(rows)

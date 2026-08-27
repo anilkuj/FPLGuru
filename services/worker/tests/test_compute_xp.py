@@ -52,7 +52,7 @@ async def test_compute_xp_writes_and_is_idempotent(db_session, monkeypatch, tmp_
     assert cnt == 1   # upsert on (player_id, gameweek_id, model_version)
 
 
-async def test_compute_xp_skips_player_with_thin_history(db_session, monkeypatch, tmp_path):
+async def test_compute_xp_cold_starts_thin_history_players(db_session, monkeypatch, tmp_path):
     db_session.add_all([Team(id=1, name="A", short_name="A"), Team(id=2, name="B", short_name="B")])
     db_session.add_all([
         Gameweek(id=1, name="GW1", deadline_time=datetime(2025, 8, 1, tzinfo=UTC), finished=True),
@@ -74,4 +74,9 @@ async def test_compute_xp_skips_player_with_thin_history(db_session, monkeypatch
     monkeypatch.setenv("FPLGURU_XP_ARTIFACT_DIR", str(tmp_path))
 
     n = await compute_and_store_xp(horizon=1)
-    assert n == 0   # only 1 appearance < 3 -> feature_row_from_history returns None
+    assert n == 1   # thin history -> position-mean cold-start fallback row
+
+    r = (await db_session.execute(select(PlayerGwPrediction))).scalars().one()
+    assert abs(r.xp - BasicXP({}, global_mean=3.0).baseline("MID")) < 1e-9
+    assert r.horizon_gw == 1
+    assert r.xp_floor < r.xp < r.xp_ceiling

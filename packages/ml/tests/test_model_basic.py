@@ -37,11 +37,19 @@ def test_empty_frame_is_safe():
     assert m.predict_rows("MID", [{k: 0.0 for k in FEATURE_NAMES}]) == [0.0]
 
 
+def test_baseline_is_position_mean_or_global():
+    m = train_basic(_frame(), alpha=1.0)
+    # sample frame is 1 MID row (target 13) -> MID baseline == 13, unknown pos -> global mean
+    assert abs(m.baseline("MID") - 13.0) < 1e-9
+    assert isinstance(m.baseline("GK"), float)
+
+
 def test_save_load_round_trip(tmp_path):
     m = train_basic(_frame(), alpha=1.0)
     m.save(tmp_path)
     m2 = BasicXP.load(tmp_path)
     r = [{k: 1.0 for k in m.feature_names}]
     assert m2.version == m.version == VERSION
+    assert m2.baseline("MID") == m.baseline("MID")
     for pos in m.positions():
         assert abs(m.predict_rows(pos, r)[0] - m2.predict_rows(pos, r)[0]) < 1e-9
