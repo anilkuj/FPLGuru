@@ -552,17 +552,19 @@ Expected: creates `alembic/`, `alembic.ini`.
 
 - [ ] **Step 2: Point `alembic/env.py` at core metadata + settings**
 
-Replace the generated `target_metadata = None` and URL handling so `env.py` contains:
-```python
-from fplguru_core.models import Base
-from fplguru_core.settings import get_settings
+Edit the generated `alembic/env.py`:
 
-target_metadata = Base.metadata
+1. After the `config = context.config` line, add:
+   ```python
+   from fplguru_core.models import Base
+   from fplguru_core.settings import get_settings
 
-def _url() -> str:
-    return get_settings().database_url
-```
-and every `config.get_main_option("sqlalchemy.url")` call is replaced with `_url()`. Leave the rest of the async template intact.
+   config.set_main_option("sqlalchemy.url", get_settings().database_url)
+   ```
+   (Importing `fplguru_core.models` registers all 5 tables on `Base.metadata`. Our URL contains no `%`, so `set_main_option` needs no escaping.)
+2. Change `target_metadata = None` → `target_metadata = Base.metadata`.
+3. In both `run_migrations_offline()` and `run_migrations_online()` / `do_run_migrations`, ensure `context.configure(...)` passes `compare_type=True` (add it if the template doesn't). Leave everything else in the async template as generated.
+4. In `alembic.ini`, leave `sqlalchemy.url` as the placeholder the template wrote (it's overridden in `env.py`); no change needed.
 
 - [ ] **Step 3: Autogenerate the initial migration**
 
@@ -588,6 +590,12 @@ docker compose -f infra/docker-compose.yml exec -T postgres psql -U fplguru -d f
 Expected: lists `teams, gameweeks, players, fixtures, data_sync_log, alembic_version`.
 
 - [ ] **Step 5: Write the shared DB test fixtures**
+
+First, add one line to root `pyproject.toml` `[tool.pytest.ini_options]` so the session-scoped `_engine` fixture and the tests share one event loop (pytest-asyncio 1.x otherwise puts function-scoped tests on a different loop → "Future attached to a different loop" with asyncpg):
+```toml
+asyncio_default_test_loop_scope = "session"
+```
+(It should now read `asyncio_mode = "auto"`, `asyncio_default_fixture_loop_scope = "session"`, `asyncio_default_test_loop_scope = "session"`, `testpaths = [...]`.)
 
 `conftest.py` (repo root). Tests run against a dedicated `fplguru_test` database (never the dev `fplguru` DB). The autouse `_point_app_at_test_db` fixture sets `FPLGURU_DATABASE_URL` to the test DB and calls `db.reset_state()`, so any app code under test that calls `get_settings()` / `get_sessionmaker()` (Tasks 7, 10) transparently hits `fplguru_test` — no per-test monkeypatching of `get_sessionmaker` needed.
 
