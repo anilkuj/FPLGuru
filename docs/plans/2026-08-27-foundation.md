@@ -92,7 +92,7 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B"]
 ```
 
-`asyncio_default_fixture_loop_scope = "session"` is required by pytest-asyncio 1.x so Task 4's session-scoped async `_engine` fixture shares one event loop with the function-scoped tests that use it.
+`asyncio_default_fixture_loop_scope = "session"` is required by pytest-asyncio 1.x so Task 4's session-scoped async `db_engine` fixture shares one event loop with the function-scoped tests that use it.
 
 `.gitattributes` (repo has `core.autocrlf=true`; without this, fresh clones check out CRLF and break Linux/Docker text files + Task 6's byte-exact JSON fixtures):
 ```gitattributes
@@ -563,8 +563,9 @@ Edit the generated `alembic/env.py`:
    ```
    (Importing `fplguru_core.models` registers all 5 tables on `Base.metadata`. Our URL contains no `%`, so `set_main_option` needs no escaping.)
 2. Change `target_metadata = None` → `target_metadata = Base.metadata`.
-3. In both `run_migrations_offline()` and `run_migrations_online()` / `do_run_migrations`, ensure `context.configure(...)` passes `compare_type=True` (add it if the template doesn't). Leave everything else in the async template as generated.
+3. In both `run_migrations_offline()` and `run_migrations_online()` / `do_run_migrations`, ensure `context.configure(...)` passes `compare_type=True` **and** `compare_server_default=True`. After Step 4 run `python -m alembic check`; if `compare_server_default` yields a spurious `updated_at` diff (`now()` rendering), drop just that one kwarg with a `# omitted: false positives on now()` comment.
 4. In `alembic.ini`, leave `sqlalchemy.url` as the placeholder the template wrote (it's overridden in `env.py`); no change needed.
+5. The `from fplguru_core...` lines fall between imports → ruff `E402`. Add `"alembic/*" = ["E402"]` under `[tool.ruff.lint.per-file-ignores]` in root `pyproject.toml`.
 
 - [ ] **Step 3: Autogenerate the initial migration**
 
@@ -591,13 +592,18 @@ Expected: lists `teams, gameweeks, players, fixtures, data_sync_log, alembic_ver
 
 - [ ] **Step 5: Write the shared DB test fixtures**
 
-First, add one line to root `pyproject.toml` `[tool.pytest.ini_options]` so the session-scoped `_engine` fixture and the tests share one event loop (pytest-asyncio 1.x otherwise puts function-scoped tests on a different loop → "Future attached to a different loop" with asyncpg):
+First, add one line to root `pyproject.toml` `[tool.pytest.ini_options]` so the session-scoped `db_engine` fixture and the tests share one event loop (pytest-asyncio 1.x otherwise puts function-scoped tests on a different loop → "Future attached to a different loop" with asyncpg):
 ```toml
 asyncio_default_test_loop_scope = "session"
 ```
 (It should now read `asyncio_mode = "auto"`, `asyncio_default_fixture_loop_scope = "session"`, `asyncio_default_test_loop_scope = "session"`, `testpaths = [...]`.)
 
-`conftest.py` (repo root). Tests run against a dedicated `fplguru_test` database (never the dev `fplguru` DB). The autouse `_point_app_at_test_db` fixture sets `FPLGURU_DATABASE_URL` to the test DB and calls `db.reset_state()`, so any app code under test that calls `get_settings()` / `get_sessionmaker()` (Tasks 7, 10) transparently hits `fplguru_test` — no per-test monkeypatching of `get_sessionmaker` needed.
+`conftest.py` (repo root). Design points:
+- The DB fixtures are **opt-in**: only a test that requests `db_session` (or `db_engine`) touches Postgres. Pure-unit tests (`test_smoke`, `test_settings`, `test_models`, Task 5's respx-only client tests) never spin up an engine and don't need Docker.
+- Tests run against a dedicated `fplguru_test` database — never the dev `fplguru` DB.
+- Autouse `_point_app_at_test_db` (cheap, no DB I/O) points app code that reads `get_settings()`/`get_sessionmaker()` (Tasks 7, 10) at `fplguru_test`. No per-test monkeypatching of `get_sessionmaker` needed.
+- `db_session` teardown disposes the app engine's pool (`db.dispose_engine()` — avoids Postgres connection exhaustion across a worker/api suite) and then `TRUNCATE`s all tables. Tests are TRUNCATE-isolated, not transaction-isolated (they `commit()` explicitly).
+- Single shared DB + truncate-after ⇒ **`pytest-xdist` (`-n`) is not supported** without per-worker DB names.
 
 ```python
 import os
@@ -615,27 +621,43 @@ TEST_DB_URL = os.environ.get(
     "postgresql+asyncpg://fplguru:fplguru@localhost:5432/fplguru_test",
 )
 
+_TRUNCATE_ALL = "TRUNCATE TABLE {} RESTART IDENTITY CASCADE".format(
+    ", ".join(f'"{t.name}"' for t in reversed(Base.metadata.sorted_tables))
+)
+
 
 @pytest_asyncio.fixture(scope="session")
-async def _engine():
-    # create the test database if it doesn't exist yet
+async def db_engine():
+    """Session engine bound to a dedicated `fplguru_test` DB.
+
+    Opt-in: only tests that request `db_session`/`db_engine` trigger it.
+    """
     admin_url = TEST_DB_URL.rsplit("/", 1)[0] + "/postgres"
     dbname = TEST_DB_URL.rsplit("/", 1)[1]
     admin = create_async_engine(admin_url, isolation_level="AUTOCOMMIT")
-    async with admin.connect() as conn:
-        exists = await conn.execute(
-            text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": dbname}
-        )
-        if exists.first() is None:
-            await conn.execute(text(f'CREATE DATABASE "{dbname}"'))
-    await admin.dispose()
+    try:
+        async with admin.connect() as conn:
+            exists = await conn.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": dbname}
+            )
+            if exists.first() is None:
+                await conn.execute(text(f'CREATE DATABASE "{dbname}"'))
+    except OSError as exc:  # asyncpg ConnectionRefusedError, etc.
+        raise RuntimeError(
+            f"Postgres not reachable at {admin_url} — start it with "
+            "`docker compose -f infra/docker-compose.yml up -d`"
+        ) from exc
+    finally:
+        await admin.dispose()
 
     engine = create_async_engine(TEST_DB_URL)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
-    yield engine
-    await engine.dispose()
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+            await conn.run_sync(Base.metadata.create_all)
+        yield engine
+    finally:
+        await engine.dispose()
 
 
 @pytest.fixture(autouse=True)
@@ -647,21 +669,15 @@ def _point_app_at_test_db(monkeypatch):
 
 
 @pytest_asyncio.fixture
-async def db_session(_engine):
-    maker = async_sessionmaker(_engine, expire_on_commit=False)
+async def db_session(db_engine):
+    maker = async_sessionmaker(db_engine, expire_on_commit=False)
     async with maker() as session:
         yield session
-        await session.rollback()
-
-
-@pytest_asyncio.fixture(autouse=True)
-async def _clean_tables(_engine):
-    yield
-    async with _engine.begin() as conn:
-        for table in reversed(Base.metadata.sorted_tables):
-            await conn.execute(
-                text(f'TRUNCATE TABLE "{table.name}" RESTART IDENTITY CASCADE')
-            )
+    # teardown: release any pool the app code under test created, then wipe rows
+    await _db.dispose_engine()
+    async with db_engine.begin() as conn:
+        await conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+        await conn.execute(text(_TRUNCATE_ALL))
 ```
 
 > The `Files` list mentions `packages/core/tests/conftest.py` — not needed; the repo-root `conftest.py` is discovered by pytest for every package. Create only the root one.
@@ -1237,19 +1253,7 @@ def sync_fixtures(self) -> None:
         raise self.retry(exc=exc)
 ```
 
-> **DB-URL note for tests:** the root `conftest.py` fixtures create/populate `fplguru_test`, but `_sync_bootstrap` uses `get_sessionmaker()` which reads `FPLGURU_DATABASE_URL`. In `services/worker/tests/conftest.py` add an autouse fixture that points the app sessionmaker at the test DB:
-> ```python
-> import pytest
-> from fplguru_core import db
-> from fplguru_core.settings import get_settings
->
-> @pytest.fixture(autouse=True)
-> def _use_test_db(_engine, monkeypatch):
->     monkeypatch.setattr(db, "get_sessionmaker", lambda: __import__("sqlalchemy.ext.asyncio", fromlist=["async_sessionmaker"]).async_sessionmaker(_engine, expire_on_commit=False))
->     get_settings.cache_clear()
->     yield
->     get_settings.cache_clear()
-> ```
+> **DB wiring:** no per-test setup needed. The root `conftest.py`'s autouse `_point_app_at_test_db` already points `get_sessionmaker()` at `fplguru_test`, and these tests request `db_session`, so `db_engine` is live and rows are cleaned between tests. `services/worker/tests/` needs no `conftest.py`.
 
 - [ ] **Step 6: Run test to verify it passes**
 
@@ -1437,8 +1441,8 @@ from fplguru_core.models import Base  # noqa: F401
 
 
 @pytest_asyncio.fixture
-async def client(_engine):
-    maker = async_sessionmaker(_engine, expire_on_commit=False)
+async def client(db_engine):
+    maker = async_sessionmaker(db_engine, expire_on_commit=False)
 
     async def _override():
         async with maker() as session:
@@ -1789,6 +1793,7 @@ jobs:
       - run: python -m pip install "ruff==0.6.*"
       - run: python -m ruff check .
       - run: python -m alembic upgrade head
+      - run: python -m alembic check   # fails if models drifted from migrations
       - run: python -m pytest -q
 
   web:
@@ -1809,9 +1814,9 @@ CI runs `ruff` (Linux, no SAC); local dev skips it. `python -m ruff` works becau
 
 Run:
 ```bash
-python -m alembic upgrade head && python -m pytest -q
+python -m alembic upgrade head && python -m alembic check && python -m pytest -q
 ```
-Expected: migrations apply, all Python tests pass. (`ruff` is CI-only — SAC blocks it locally. If you want a local lint proxy, `python -m pyflakes packages services` is pure-Python and runs fine, but it is not required to pass this task.)
+Expected: migrations apply, `alembic check` reports no new operations, all Python tests pass. (`ruff` is CI-only — SAC blocks it locally. If you want a local lint proxy, `python -m pyflakes packages services` is pure-Python and runs fine, but it is not required to pass this task.)
 
 - [ ] **Step 3: Commit**
 
