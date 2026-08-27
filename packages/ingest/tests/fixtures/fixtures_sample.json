@@ -1,7 +1,8 @@
 [
   {"id": 1, "event": 1, "kickoff_time": "2025-08-16T14:00:00Z",
    "team_h": 1, "team_a": 1, "team_h_difficulty": 3, "team_a_difficulty": 2,
-   "finished": false, "team_h_score": null, "team_a_score": null},
+   "finished": false, "team_h_score": null, "team_a_score": null,
+   "started": true, "minutes": 63, "finished_provisional": false},
   {"id": 2, "event": null, "kickoff_time": null,
    "team_h": 1, "team_a": 1, "team_h_difficulty": 4, "team_a_difficulty": 4,
    "finished": false, "team_h_score": null, "team_a_score": null}
