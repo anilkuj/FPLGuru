@@ -3,6 +3,7 @@
 -e ./packages/ingest
 -e ./packages/ml
 -e ./packages/entrysync
+-e ./packages/fdr
 -e ./services/api
 -e ./services/worker
 

@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fplguru_entrysync import sync_entry
+from fplguru_fdr import compute_fdr
 from sqlalchemy import desc, distinct, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,10 +12,12 @@ from fplguru_core.models import (
     DataSyncLog,
     EntryGwHistory,
     EntryPick,
+    Fixture,
     Gameweek,
     LinkedTeam,
     Player,
     PlayerGwPrediction,
+    Team,
 )
 
 _MODEL_VERSION = "basic-v1"
@@ -119,6 +122,44 @@ async def xp_list(horizon: int = Query(5, ge=1, le=5),
         })
         d["xp_total"] += pred.xp
     return sorted(agg.values(), key=lambda d: d["xp_total"], reverse=True)
+
+
+@app.get("/fdr")
+async def fdr(
+    horizon: int = Query(5, ge=1, le=10),
+    start_gw: int | None = Query(None, ge=1, le=38),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    if start_gw is None:
+        nxt = (await db.execute(
+            select(Gameweek).where(Gameweek.is_current)
+        )).scalar_one_or_none()
+        if nxt is None:
+            nxt = (await db.execute(
+                select(Gameweek).where(Gameweek.is_next)
+            )).scalar_one_or_none()
+        start_gw = nxt.id if nxt else 1
+    teams = [
+        {"id": t.id, "short_name": t.short_name,
+         "strength_overall_home": t.strength_overall_home,
+         "strength_overall_away": t.strength_overall_away}
+        for t in (await db.execute(select(Team))).scalars().all()
+    ]
+    gws = [
+        {"id": g.id, "is_next": g.is_next, "finished": g.finished}
+        for g in (await db.execute(select(Gameweek))).scalars().all()
+    ]
+    fixtures = [
+        {"id": f.id, "gameweek_id": f.gameweek_id, "home_team_id": f.home_team_id,
+         "away_team_id": f.away_team_id, "home_score": f.home_score,
+         "away_score": f.away_score, "finished": f.finished}
+        for f in (await db.execute(select(Fixture))).scalars().all()
+    ]
+    return {
+        "start_gw": start_gw,
+        "horizon": horizon,
+        "teams": compute_fdr(teams, fixtures, gws, start_gw=start_gw, horizon=horizon),
+    }
 
 
 @app.post("/link/{entry_id}")

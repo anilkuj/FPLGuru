@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** ✅ **Foundation complete, PR green.** All 14 tasks + final review + ruff cleanup. **PR [anilkuj/FPLGuru#1](https://github.com/anilkuj/FPLGuru/pull/1)** (`feature/foundation` → `main`) — CI `python` + `web` both ✅, `mergeStateStatus: CLEAN`. Ready to merge (needed a Node 20→22 bump for jsdom 30 / undici 8).
+**Status:** ✅ Foundation (PR #1), ✅ P1c Basic xP (PR #2), ✅ P1a Team Linking (PR #3) — all merged to `main`. **P1d FDR Table in progress** on `feature/p1d-fdr` (Tasks 1–3 done, Task 4 docs finishing). Scope pivot 2026-08-27: product is **free, no Free/Pro tiers** — P1g (Stripe) + P4c (annual billing) dropped; P1a-auth optional.
 **Last updated:** 2026-08-27.
-**Branch:** `feature/foundation` (~42 commits ahead of `main`), pushed to `origin`.
+**Branch:** `feature/p1d-fdr` (off `main`), not pushed.
 
 ---
 
@@ -85,13 +85,32 @@ Plan: [`docs/plans/2026-08-27-p1a-team-dashboard.md`](plans/2026-08-27-p1a-team-
 
 **Live-verified:** `POST /link/1` → "Chris Musson"; `GET /entries/1` → 15 picks with xP (Raya GK 11.0, Tzolis MID 9.5); `GET /entries/1/history` → GW1 (41 pts). 87 py tests + 3 web tests, `-W error` / `ruff` / `alembic check` clean, `next build` clean. Next: review → PR `feature/p1a-team-dashboard` → `main`.
 
-**Remaining unblocked Phase-1 path:** P1d (FDR) → P1b (live/GW Live) → P1e (alerts + priority ranking) → P1h (PWA) → P1g (Stripe scaffold, keys later). Blocked: P1g full (Stripe keys), P1a-auth (OAuth/email).
+**Remaining unblocked Phase-1 path:** P1b (live/GW Live) → P1e (alerts + priority ranking) → P1f (deadline reminders) → P1h (PWA). Blocked: P1a-auth (OAuth/email — optional, blocks nothing). P1g (Stripe) and P4c (annual billing) **dropped** — product is free, no tiers.
 
 **P1c notes:** hand-rolled ridge (no scikit-learn — dodges SAC native-binary block); Basic model is FPL-data-only + leak-safe features (rolling form, minutes, home/away, price, opp-conceded-to-position); component breakdown (`x_*` cols) left 0.0 for Basic, filled in Advanced (P2b). Test seeding must be **FK-parent-first** (models have no `relationship()` → single `add_all` flushes in alphabetical class order). Real training/backtest needs `python scripts/fetch_historical.py 2022-23 2023-24 2024-25` first (gitignored `data/historical/`). New `DataSyncLog.source` values `fpl_gw_stats` / `xp_compute` — Task 14 must extend `/status`'s hardcoded source tuple (or make it enumerate `distinct(source)`).
 
 **Final review notes (all 14 tasks green):** 34 tests pass deterministically under `-W error`, 0 skips; no model↔migration drift (`alembic check` clean); env-var naming consistent; no secrets. The one blocker was `ruff check .` (never run locally due to SAC) → 39 errors that would red the CI `python` job. Being fixed now. Non-blocking follow-ups: `apps/web` manifest references icon PNGs that don't exist yet (deferred to sub-plan P1h), create-next-app scaffold SVGs unused, a test that runs `alembic upgrade head` against the test DB would close the create_all-vs-migrations gap.
 
 **Test state:** `python -m pytest -q` (repo root) → **~33 passed, 0 warnings** (exact count grows per task). Requires Docker Postgres up.
+
+---
+
+## P1d — FDR Table (branch `feature/p1d-fdr`)
+
+Plan: [`docs/plans/2026-08-27-p1d-fdr-table.md`](plans/2026-08-27-p1d-fdr-table.md). Subagent-driven, same process.
+
+| Task | What | Status |
+|---|---|---|
+| 1 | `packages/fdr` (`fplguru-fdr`) — pure `compute_fdr(teams, fixtures, gameweeks, *, start_gw, horizon)` | ✅ `9b02cd1` |
+| 2 | `GET /fdr?horizon=&start_gw=` API (`fplguru-fdr` added to `services/api` deps) | ✅ `bd7f90b` |
+| 3 | web `/fdr` colour-coded grid + horizon `<select>` + `prefs.ts` localStorage + nav link | ✅ `408fdec` |
+| 4 | docs (README, master plan ✅, this file) + final verification | 🔧 finishing |
+
+**FDR model:** per fixture, opponent venue strength → strength-tier FDR (`None`→3.0, else `1 + 4·clamp((s−2)/3)`); if the opponent has ≥1 finished result, blend 55/45 with goals form against a pooled scored+conceded per-game baseline; split into `att_fdr` (facing their attack → your clean-sheet difficulty) and `def_fdr` (facing their defence → your scoring difficulty); `fdr = mean(att, def)` (stored unrounded), `band = round(fdr)` clamped 1–5. Teams sorted easiest-first by `avg_fdr` (None last). No tier gate — horizon 1–10 for everyone.
+
+**Implementer caught 2 real bugs in the plan's verbatim Task 1 code:** `round(fdr, 2)` broke an exact-arithmetic test assertion (→ store `fdr` unrounded); baseline = mean(goals-for only) mis-ordered att/def (→ pool both scored and conceded per-game). Plan's Task 1 code block + test count synced on disk (`45b119c`).
+
+**Verification (repo state after Task 3):** `python -m pytest -q` → **93 passed**, no warnings; `ruff check .` clean; `alembic check` clean (P1d adds no tables); `pnpm --filter web test` → 4 passed; `pnpm --filter web build` → `/fdr` prerendered OK. Next: docs commit → PR `feature/p1d-fdr` → `main`.
 
 ---
 
