@@ -73,6 +73,30 @@ python -m pytest -q          # needs Docker Postgres up; ruff runs in CI only
 pnpm --filter web test
 ```
 
+## xP model (Basic tier)
+
+Transparent per-position ridge model (no scikit-learn), FPL-data-only leak-safe features
+(rolling form, minutes reliability, home/away, price, opponent points-conceded-to-position).
+Component breakdown and a non-linear model come with the Advanced tier (sub-plan P2b).
+
+```bash
+# one-time: pull historical data (gitignored)
+python scripts/fetch_historical.py 2022-23 2023-24 2024-25
+
+# train  ->  packages/ml/artifacts/basic/*.json   (small; committed)
+python scripts/train_xp.py --csv data/historical/*_merged_gw.csv --out packages/ml/artifacts/basic
+
+# walk-forward backtest  ->  docs/xp-backtest/<date>.md
+python scripts/backtest_xp.py --csv data/historical/2024-25_merged_gw.csv
+
+# serve: the worker's compute_xp task fills player_gw_predictions hourly.
+#   GET /xp?horizon=5              -> all players, ranked by cumulative xP
+#   GET /players/{id}/xp?horizon=5 -> per-gameweek breakdown + floor/ceiling
+```
+
+Latest backtest: [`docs/xp-backtest/2026-08-27.md`](docs/xp-backtest/2026-08-27.md) — all four
+position groups beat the naive-mean baseline.
+
 ## Data sources
 
 - Official FPL API (`fantasy.premierleague.com/api/`) — live, no key, unofficial (no SLA)
