@@ -1688,7 +1688,9 @@ git commit -m "feat: FastAPI service with health, status, and gameweek endpoints
 
 - [ ] **Step 1: Add dependency**
 
-Set `packages/ingest/pyproject.toml` `dependencies = ["fplguru-core", "pandas>=2.2"]`, `pip install -r requirements-dev.txt`.
+Set `packages/ingest/pyproject.toml` `dependencies = ["fplguru-core", "pandas>=2.2,<4", "numpy>=2.2,<2.5"]`, `pip install -r requirements-dev.txt`.
+
+> `numpy<2.5` is required: Smart App Control blocks `numpy` 2.5.x's `_sfc64.pyd` on this machine, which breaks `import pandas`. 2.2.x works.
 
 - [ ] **Step 2: Create a trimmed sample CSV**
 
