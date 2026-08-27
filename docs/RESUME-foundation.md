@@ -1,6 +1,6 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** ✅ **Foundation complete.** All 14 tasks done + final review + ruff cleanup. Opened as **PR [anilkuj/FPLGuru#1](https://github.com/anilkuj/FPLGuru/pull/1)** (`feature/foundation` → `main`), pushed. Awaiting first CI run + merge.
+**Status:** ✅ **Foundation complete, PR green.** All 14 tasks + final review + ruff cleanup. **PR [anilkuj/FPLGuru#1](https://github.com/anilkuj/FPLGuru/pull/1)** (`feature/foundation` → `main`) — CI `python` + `web` both ✅, `mergeStateStatus: CLEAN`. Ready to merge (needed a Node 20→22 bump for jsdom 30 / undici 8).
 **Last updated:** 2026-08-27.
 **Branch:** `feature/foundation` (~42 commits ahead of `main`), pushed to `origin`.
 
@@ -37,7 +37,8 @@ The master roadmap for everything *after* Foundation is [`docs/plans/2026-08-27-
 | — | Final whole-branch review | ✅ | verdict: READY AFTER BLOCKING FIXES |
 | — | Fix 39 `ruff` errors (isort/bugbear config, line wraps, B904, dead noqa) | ✅ | `803e731` |
 | — | Push branch + open PR #1 → `main` | ✅ | — |
-| — | Review CI on PR #1, then merge | ⬜ next | — |
+| — | CI on PR #1 (Node 20→22 fix) | ✅ green | `4e...` |
+| — | Merge PR #1 → `main` | ⬜ your call (`gh pr merge 1 --squash` or via GitHub) | — |
 
 **Final review notes (all 14 tasks green):** 34 tests pass deterministically under `-W error`, 0 skips; no model↔migration drift (`alembic check` clean); env-var naming consistent; no secrets. The one blocker was `ruff check .` (never run locally due to SAC) → 39 errors that would red the CI `python` job. Being fixed now. Non-blocking follow-ups: `apps/web` manifest references icon PNGs that don't exist yet (deferred to sub-plan P1h), create-next-app scaffold SVGs unused, a test that runs `alembic upgrade head` against the test DB would close the create_all-vs-migrations gap.
 
