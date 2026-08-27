@@ -43,7 +43,7 @@
 ## Task 1: Repo & package scaffold
 
 **Files:**
-- Create: `pyproject.toml`, `requirements-dev.txt`, `pnpm-workspace.yaml`, `.env.example`
+- Create: `pyproject.toml`, `.gitattributes`, `requirements-dev.txt`, `pnpm-workspace.yaml`, `.env.example`
 - Modify: `.gitignore` (already present from repo setup)
 - Create: `packages/{core,fpl_client,ingest,ml}/src/<pkg>/__init__.py` + each `pyproject.toml`
 - Create: `services/{api,worker}/src/<pkg>/__init__.py` + each `pyproject.toml`
@@ -76,11 +76,12 @@ dist/
 data/
 ```
 
-- [ ] **Step 3: Write root `pyproject.toml` (config only — no deps, no uv)**
+- [ ] **Step 3: Write root `pyproject.toml` (config only — no deps, no uv) and `.gitattributes`**
 
 ```toml
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
 testpaths = ["packages", "services"]
 
 [tool.ruff]
@@ -89,6 +90,15 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+```
+
+`asyncio_default_fixture_loop_scope = "session"` is required by pytest-asyncio 1.x so Task 4's session-scoped async `_engine` fixture shares one event loop with the function-scoped tests that use it.
+
+`.gitattributes` (repo has `core.autocrlf=true`; without this, fresh clones check out CRLF and break Linux/Docker text files + Task 6's byte-exact JSON fixtures):
+```gitattributes
+* text=auto eol=lf
+*.png binary
+*.ico binary
 ```
 
 - [ ] **Step 4: Write `requirements-dev.txt` (leaf-first editable installs + test deps)**
@@ -102,7 +112,7 @@ select = ["E", "F", "I", "UP", "B"]
 -e ./services/worker
 
 pytest>=8.2
-pytest-asyncio>=0.23
+pytest-asyncio>=1.0,<2
 respx>=0.21
 httpx>=0.27
 asgi-lifespan>=2.1
