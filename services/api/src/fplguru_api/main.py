@@ -2,11 +2,20 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Query
-from sqlalchemy import desc, distinct, select, text
+from fplguru_entrysync import sync_entry
+from sqlalchemy import desc, distinct, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fplguru_core.db import dispose_engine, get_sessionmaker
-from fplguru_core.models import DataSyncLog, Gameweek, Player, PlayerGwPrediction
+from fplguru_core.models import (
+    DataSyncLog,
+    EntryGwHistory,
+    EntryPick,
+    Gameweek,
+    LinkedTeam,
+    Player,
+    PlayerGwPrediction,
+)
 
 _MODEL_VERSION = "basic-v1"
 
@@ -110,6 +119,80 @@ async def xp_list(horizon: int = Query(5, ge=1, le=5),
         })
         d["xp_total"] += pred.xp
     return sorted(agg.values(), key=lambda d: d["xp_total"], reverse=True)
+
+
+@app.post("/link/{entry_id}")
+async def link_entry(entry_id: int, db: AsyncSession = Depends(get_db)) -> dict:
+    try:
+        await sync_entry(entry_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"could not sync entry {entry_id}") from exc
+    lt = (await db.execute(
+        select(LinkedTeam).where(LinkedTeam.fpl_entry_id == entry_id)
+    )).scalar_one()
+    return {"fpl_entry_id": lt.fpl_entry_id, "manager_name": lt.manager_name,
+            "linked_team_id": lt.id}
+
+
+async def _linked_or_404(db: AsyncSession, entry_id: int) -> LinkedTeam:
+    lt = (await db.execute(
+        select(LinkedTeam).where(LinkedTeam.fpl_entry_id == entry_id)
+    )).scalar_one_or_none()
+    if lt is None:
+        raise HTTPException(status_code=404, detail="entry not linked")
+    return lt
+
+
+@app.get("/entries/{entry_id}")
+async def get_entry(entry_id: int, db: AsyncSession = Depends(get_db)) -> dict:
+    lt = await _linked_or_404(db, entry_id)
+    latest_pick_gw = (await db.execute(
+        select(func.max(EntryPick.gameweek_id)).where(EntryPick.linked_team_id == lt.id)
+    )).scalar()
+    rows = (await db.execute(
+        select(EntryPick, Player).join(Player, Player.id == EntryPick.player_id)
+        .where(EntryPick.linked_team_id == lt.id, EntryPick.gameweek_id == latest_pick_gw)
+        .order_by(EntryPick.slot)
+    )).all()
+    xp_by_player: dict[int, float] = {}
+    if rows:
+        pids = [pl.id for _, pl in rows]
+        for pid, total in (await db.execute(
+            select(PlayerGwPrediction.player_id, func.sum(PlayerGwPrediction.xp))
+            .where(PlayerGwPrediction.player_id.in_(pids),
+                   PlayerGwPrediction.model_version == _MODEL_VERSION)
+            .group_by(PlayerGwPrediction.player_id)
+        )).all():
+            xp_by_player[pid] = float(total)
+    return {
+        "fpl_entry_id": lt.fpl_entry_id,
+        "manager_name": lt.manager_name,
+        "last_synced_at": lt.last_synced_at.isoformat() if lt.last_synced_at else None,
+        "picks_gameweek_id": latest_pick_gw,
+        "picks": [
+            {"slot": ep.slot, "player_id": pl.id, "web_name": pl.web_name,
+             "position": pl.position, "now_cost": pl.now_cost, "multiplier": ep.multiplier,
+             "is_captain": ep.is_captain, "is_vice": ep.is_vice,
+             "xp": xp_by_player.get(pl.id, 0.0)}
+            for ep, pl in rows
+        ],
+    }
+
+
+@app.get("/entries/{entry_id}/history")
+async def get_entry_history(entry_id: int, db: AsyncSession = Depends(get_db)) -> list[dict]:
+    lt = await _linked_or_404(db, entry_id)
+    rows = (await db.execute(
+        select(EntryGwHistory).where(EntryGwHistory.linked_team_id == lt.id)
+        .order_by(EntryGwHistory.gameweek_id)
+    )).scalars().all()
+    return [
+        {"gameweek_id": h.gameweek_id, "points": h.points, "total_points": h.total_points,
+         "overall_rank": h.overall_rank, "bank": h.bank, "team_value": h.team_value,
+         "transfers": h.transfers, "transfer_cost": h.transfer_cost,
+         "points_on_bench": h.points_on_bench}
+        for h in rows
+    ]
 
 
 @app.get("/players/{player_id}/xp")

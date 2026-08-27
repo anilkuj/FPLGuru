@@ -2,7 +2,7 @@
 name = "fplguru-api"
 version = "0.0.0"
 requires-python = ">=3.12"
-dependencies = ["fastapi>=0.111,<1", "uvicorn[standard]>=0.30", "fplguru-core"]
+dependencies = ["fastapi>=0.111,<1", "uvicorn[standard]>=0.30", "fplguru-core", "fplguru-entrysync"]
 
 [build-system]
 requires = ["hatchling"]
