@@ -33,8 +33,12 @@ The master roadmap for everything *after* Foundation is [`docs/plans/2026-08-27-
 | 11 | Historical `merged_gw` normalizer + `scripts/fetch_historical.py` | ✅ | `79dd0cc` (+ numpy pin follow-up) |
 | 12 | CI pipeline (`.github/workflows/ci.yml`) | ✅ | `55e951e` |
 | 13 | Next.js PWA shell (`apps/web/`, Next 16.3.3 / React 19 / Tailwind v4 / Vitest 4) | ✅ | `e00346b` |
-| **14** | **`README.md` + acceptance checklist** | ⬜ next | — |
-| — | Final whole-branch review, then merge `feature/foundation` → `main` | ⬜ | — |
+| 14 | `README.md` + acceptance checklist (+ `sync_all()` one-loop populate helper) | ✅ | `d14fc23` |
+| — | Final whole-branch review | ✅ | verdict: READY AFTER BLOCKING FIXES |
+| — | Fix 39 `ruff` errors (isort/bugbear config, line wraps, B904, dead noqa) | 🔧 in progress | — |
+| — | Merge `feature/foundation` → `main` | ⬜ next | — |
+
+**Final review notes (all 14 tasks green):** 34 tests pass deterministically under `-W error`, 0 skips; no model↔migration drift (`alembic check` clean); env-var naming consistent; no secrets. The one blocker was `ruff check .` (never run locally due to SAC) → 39 errors that would red the CI `python` job. Being fixed now. Non-blocking follow-ups: `apps/web` manifest references icon PNGs that don't exist yet (deferred to sub-plan P1h), create-next-app scaffold SVGs unused, a test that runs `alembic upgrade head` against the test DB would close the create_all-vs-migrations gap.
 
 **Test state:** `python -m pytest -q` (repo root) → **~33 passed, 0 warnings** (exact count grows per task). Requires Docker Postgres up.
 
