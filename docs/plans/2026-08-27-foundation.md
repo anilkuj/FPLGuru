@@ -1123,8 +1123,6 @@ BASE = "https://fpl.test/api"
 @respx.mock
 async def test_sync_bootstrap_upserts_and_logs(db_session, monkeypatch):
     monkeypatch.setenv("FPLGURU_FPL_API_BASE", BASE)
-    from fplguru_core.settings import get_settings
-    get_settings.cache_clear()
     respx.get(f"{BASE}/bootstrap-static/").mock(return_value=httpx.Response(200, json=BOOTSTRAP))
 
     await _sync_bootstrap()
@@ -1139,8 +1137,6 @@ async def test_sync_bootstrap_upserts_and_logs(db_session, monkeypatch):
 @respx.mock
 async def test_sync_bootstrap_is_idempotent(db_session, monkeypatch):
     monkeypatch.setenv("FPLGURU_FPL_API_BASE", BASE)
-    from fplguru_core.settings import get_settings
-    get_settings.cache_clear()
     respx.get(f"{BASE}/bootstrap-static/").mock(return_value=httpx.Response(200, json=BOOTSTRAP))
 
     await _sync_bootstrap()
@@ -1148,6 +1144,8 @@ async def test_sync_bootstrap_is_idempotent(db_session, monkeypatch):
 
     assert (await db_session.execute(select(func.count()).select_from(Player))).scalar() == 1
 ```
+
+(The root `conftest.py`'s autouse `_point_app_at_test_db` already clears the settings cache each test, so `monkeypatch.setenv` alone is enough — no manual `get_settings.cache_clear()`.)
 
 - [ ] **Step 4: Run test to verify it fails**
 
@@ -1298,8 +1296,6 @@ BASE = "https://fpl.test/api"
 @respx.mock
 async def test_sync_fixtures_persists_scheduled_and_unscheduled(db_session, monkeypatch):
     monkeypatch.setenv("FPLGURU_FPL_API_BASE", BASE)
-    from fplguru_core.settings import get_settings
-    get_settings.cache_clear()
     # FK prerequisites
     db_session.add_all([
         Team(id=1, name="Arsenal", short_name="ARS"),
@@ -1369,8 +1365,6 @@ BASE = "https://fpl.test/api"
 @respx.mock
 async def test_api_outage_logs_error_row_and_reraises(db_session, monkeypatch):
     monkeypatch.setenv("FPLGURU_FPL_API_BASE", BASE)
-    from fplguru_core.settings import get_settings
-    get_settings.cache_clear()
     respx.get(f"{BASE}/bootstrap-static/").mock(return_value=httpx.Response(503))
 
     with pytest.raises(FplApiError):
