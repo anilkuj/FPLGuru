@@ -1275,6 +1275,19 @@ async def _sync_fixtures() -> None:
         raise
 
 
+async def sync_all() -> None:
+    """Bootstrap then fixtures in one event loop — the manual DB-populate entry point:
+
+        python -c "import asyncio; from fplguru_worker.tasks import sync_all; asyncio.run(sync_all())"
+
+    (Two back-to-back ``asyncio.run(_sync_bootstrap())`` / ``asyncio.run(_sync_fixtures())``
+    calls crash: the module-cached async engine's asyncpg connection is bound to the first,
+    now-closed loop.)
+    """
+    await _sync_bootstrap()
+    await _sync_fixtures()
+
+
 async def _run_and_dispose(coro_fn) -> None:
     """Run one sync, then drop the process-cached engine so the next Celery
     task (a fresh event loop via asyncio.run) doesn't reuse asyncpg
@@ -2071,7 +2084,7 @@ python -m pip install -r requirements-dev.txt
 
 python -m alembic upgrade head
 # populate DB from the live FPL API
-python -c "import asyncio; from fplguru_worker.tasks import _sync_bootstrap, _sync_fixtures; asyncio.run(_sync_bootstrap()); asyncio.run(_sync_fixtures())"
+python -c "import asyncio; from fplguru_worker.tasks import sync_all; asyncio.run(sync_all())"
 ```
 
 ## Run services (venv active)
