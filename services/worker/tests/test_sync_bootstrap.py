@@ -50,3 +50,21 @@ async def test_run_and_dispose_allows_a_second_run(db_session, monkeypatch):
     await _run_and_dispose(_sync_bootstrap)  # dispose()+reset_state() between runs must not break run 2
 
     assert (await db_session.execute(select(func.count()).select_from(Player))).scalar() == 1
+
+
+@respx.mock
+async def test_sync_all_runs_both(db_session, monkeypatch):
+    from fplguru_worker.tasks import sync_all
+
+    monkeypatch.setenv("FPLGURU_FPL_API_BASE", BASE)
+    respx.get(f"{BASE}/bootstrap-static/").mock(return_value=httpx.Response(200, json=BOOTSTRAP))
+    respx.get(f"{BASE}/fixtures/").mock(return_value=httpx.Response(200, json=[]))
+
+    await sync_all()
+
+    from fplguru_core.models import DataSyncLog
+    from sqlalchemy import select
+    sources = {
+        r.source for r in (await db_session.execute(select(DataSyncLog))).scalars().all()
+    }
+    assert sources == {"fpl_bootstrap", "fpl_fixtures"}

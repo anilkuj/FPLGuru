@@ -105,6 +105,16 @@ async def _sync_fixtures() -> None:
         raise
 
 
+async def sync_all() -> None:
+    """Bootstrap then fixtures in one event loop — the entry point for
+    manual DB population:
+
+        python -c "import asyncio; from fplguru_worker.tasks import sync_all; asyncio.run(sync_all())"
+    """
+    await _sync_bootstrap()
+    await _sync_fixtures()
+
+
 async def _run_and_dispose(coro_fn) -> None:
     """Run one sync, then drop the process-cached engine so the next Celery
     task (a fresh event loop via asyncio.run) doesn't reuse asyncpg
