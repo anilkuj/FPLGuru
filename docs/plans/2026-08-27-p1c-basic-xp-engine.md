@@ -24,6 +24,8 @@
 - `services/worker/tasks.py`: `_upsert(session, model, rows) -> int` (pg `ON CONFLICT (id)` upsert), `_record(...)`, `_log_error(...)`, `_run_and_dispose(coro_fn)`, Celery `sync_bootstrap`/`sync_fixtures` with a Beat schedule.
 - `services/api/main.py`: `get_db` (read-only), `_gw`, endpoints `/health /ready /gameweeks /gameweeks/current /status`.
 - Root `conftest.py`: `db_engine` (session, opt-in), `db_session` (function, truncate-after), autouse `_point_app_at_test_db`.
+
+> **Test-seeding gotcha:** the models declare **no `relationship()`**, so a single `db_session.add_all([...])` with a mix of FK parents and children flushes mappers in *alphabetical class order* (`Fixture` before `Gameweek`, `Player` before `Team`) → `ForeignKeyViolationError`. **Seed in FK-parent-first waves**, each followed by `await db_session.commit()` (or `.flush()`): `Team`/`Gameweek` → `Player` → `Fixture`/`PlayerGwStat`/`PlayerGwPrediction`. Every test snippet below that seeds a parent+child mix must be split this way.
 - Toolchain: `venv`+`pip`, `python -m <tool>`, commits staged `git add -A -- ':!docs'`, author `Anil Kujur <anilkuj@gmail.com>` + `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>`.
 
 ---
