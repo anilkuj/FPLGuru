@@ -2,7 +2,7 @@
 name = "fplguru-core"
 version = "0.0.0"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["pydantic-settings>=2.3", "pydantic>=2.7"]
 
 [build-system]
 requires = ["hatchling"]
