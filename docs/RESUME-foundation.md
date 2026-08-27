@@ -64,7 +64,28 @@ Plan: [`docs/plans/2026-08-27-p1c-basic-xp-engine.md`](plans/2026-08-27-p1c-basi
 | 13 | `GET /xp` + `GET /players/{id}/xp`; `/status` enumerates all sources | ✅ `daa0fd8` |
 | 14 | beat wiring, README, master-plan status | 🔧 finishing |
 
-**Live end-to-end verified:** `sync_gw_stats` → 610 `player_gw_stats`; `compute_xp` → 2,465 `player_gw_predictions`; `GET /xp?horizon=5` → 493 players ranked (top: Raya GK ~11 xP); `/status` → all 4 sources `ok`. Next: final whole-branch review → PR `feature/basic-xp` → `main`.
+**Live end-to-end verified:** `sync_gw_stats` → 610 `player_gw_stats`; `compute_xp` → 2,465 `player_gw_predictions`; `GET /xp?horizon=5` → 493 players ranked (top: Raya GK ~11 xP); `/status` → all 4 sources `ok`. **Merged to `main` as PR #2 (`ab2c266`).**
+
+---
+
+## P1a — Team Linking & Dashboard Shell (branch `feature/p1a-team-dashboard`)
+
+Plan: [`docs/plans/2026-08-27-p1a-team-dashboard.md`](plans/2026-08-27-p1a-team-dashboard.md). **No auth in this sub-plan** — entry-id-keyed; accounts (email/pw or Google) are sub-plan **P1a-auth**, blocked on the OAuth-creds / email-transport decision.
+
+| Task | What | Status |
+|---|---|---|
+| 1 | `linked_teams` / `entry_gw_history` / `entry_picks` + `0003` migration | ✅ `acc85af` |
+| 2 | `FplClient.entry` / `entry_history` / `entry_picks` | ✅ `a0619dd` |
+| 3 | `normalize_entry` / `_history` / `_picks` | ✅ `1640aed` |
+| 4 | `fplguru-entrysync` pkg + `sync_entry` + `sync-linked-teams` Beat | ✅ `f839196` |
+| 5 | `POST /link/{id}`, `GET /entries/{id}` (squad + xP), `GET /entries/{id}/history` | ✅ `250daa7` |
+| 7 | web: typed entry client + `localStorage` entry id | ✅ `cac8756` |
+| 8 | web: nav shell + link form + squad page | ✅ `2224e8c` |
+| 9 | docs + wiring | 🔧 finishing |
+
+**Live-verified:** `POST /link/1` → "Chris Musson"; `GET /entries/1` → 15 picks with xP (Raya GK 11.0, Tzolis MID 9.5); `GET /entries/1/history` → GW1 (41 pts). 87 py tests + 3 web tests, `-W error` / `ruff` / `alembic check` clean, `next build` clean. Next: review → PR `feature/p1a-team-dashboard` → `main`.
+
+**Remaining unblocked Phase-1 path:** P1d (FDR) → P1b (live/GW Live) → P1e (alerts + priority ranking) → P1h (PWA) → P1g (Stripe scaffold, keys later). Blocked: P1g full (Stripe keys), P1a-auth (OAuth/email).
 
 **P1c notes:** hand-rolled ridge (no scikit-learn — dodges SAC native-binary block); Basic model is FPL-data-only + leak-safe features (rolling form, minutes, home/away, price, opp-conceded-to-position); component breakdown (`x_*` cols) left 0.0 for Basic, filled in Advanced (P2b). Test seeding must be **FK-parent-first** (models have no `relationship()` → single `add_all` flushes in alphabetical class order). Real training/backtest needs `python scripts/fetch_historical.py 2022-23 2023-24 2024-25` first (gitignored `data/historical/`). New `DataSyncLog.source` values `fpl_gw_stats` / `xp_compute` — Task 14 must extend `/status`'s hardcoded source tuple (or make it enumerate `distinct(source)`).
 

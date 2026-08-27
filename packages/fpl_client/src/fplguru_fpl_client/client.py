@@ -73,3 +73,12 @@ class FplClient:
 
     async def event_live(self, gameweek: int) -> dict:
         return await self._get(f"event/{gameweek}/live/")
+
+    async def entry(self, entry_id: int) -> dict:
+        return await self._get(f"entry/{entry_id}/")
+
+    async def entry_history(self, entry_id: int) -> dict:
+        return await self._get(f"entry/{entry_id}/history/")
+
+    async def entry_picks(self, entry_id: int, gameweek: int) -> dict:
+        return await self._get(f"entry/{entry_id}/event/{gameweek}/picks/")

@@ -8,6 +8,7 @@ dependencies = [
     "fplguru-fpl-client",
     "fplguru-ingest",
     "fplguru-ml",
+    "fplguru-entrysync",
 ]
 
 [build-system]
