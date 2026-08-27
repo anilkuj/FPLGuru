@@ -800,39 +800,50 @@ git -c user.name="Anil Kujur" -c user.email="anilkuj@gmail.com" commit -m "feat(
 - Modify: `services/api/src/fplguru_api/main.py`
 - Modify: `services/api/tests/test_live_api.py`
 
-- [ ] **Step 1: failing test** — append to `services/api/tests/test_live_api.py`:
+- [ ] **Step 1: failing test** — append to `services/api/tests/test_live_api.py`. httpx's `ASGITransport` **buffers** the response body, so it cannot consume a real SSE stream — drive the `_live_event_stream` async generator directly, and check the route's headers separately:
 ```python
-import json
+import json  # already at top of the file
 
 
-async def test_live_stream_emits_a_snapshot_event(client, db_session):
+class _FakeDisconnectedRequest:
+    async def is_disconnected(self) -> bool:
+        return True
+
+
+async def test_live_stream_first_event_is_a_snapshot(db_session):
+    from fplguru_api.main import _live_event_stream
+
     await _seed(db_session)
-    async with client.stream("GET", "/gameweeks/current/live/stream") as r:
-        assert r.status_code == 200
-        assert r.headers["content-type"].startswith("text/event-stream")
-        got = None
-        async for line in r.aiter_lines():
-            if line.startswith("data: "):
-                got = json.loads(line[len("data: "):])
-                break
-    assert got is not None
-    assert got["gameweek_id"] == 3
-    assert got["players"][0]["player_id"] == 1
+    gen = _live_event_stream(_FakeDisconnectedRequest(), poll_seconds=0)
+    try:
+        chunk = await gen.__anext__()
+    finally:
+        await gen.aclose()
+    assert chunk.startswith("data: ")
+    payload = json.loads(chunk[len("data: "):].strip())
+    assert payload["gameweek_id"] == 3
+    assert payload["players"][0]["player_id"] == 1
+
+
+async def test_live_stream_route_sets_sse_headers():
+    from fplguru_api.main import live_stream
+
+    resp = await live_stream(_FakeDisconnectedRequest())
+    assert resp.media_type == "text/event-stream"
+    assert resp.headers["cache-control"] == "no-cache"
 ```
 
-Run → FAIL (404).
+Run → FAIL (`ImportError: _live_event_stream`).
 
 - [ ] **Step 2: implement in `main.py`**
 
 Add imports: `import asyncio`, `import json` at the top with the stdlib imports (check — `asyncio`/`json` may not be imported yet); `from fastapi.responses import StreamingResponse`; `from fplguru_core.db import get_sessionmaker`.
 
 ```python
-async def _live_event_stream(request: Request, poll_seconds: float):
+async def _live_event_stream(request: Request, poll_seconds: float) -> AsyncIterator[str]:
     sentinel = object()
     last: object = sentinel
     while True:
-        if await request.is_disconnected():
-            break
         async with get_sessionmaker()() as db:
             snap = await _live_snapshot(db)
         if snap["updated_at"] != last:
@@ -841,6 +852,8 @@ async def _live_event_stream(request: Request, poll_seconds: float):
         else:
             yield ": keepalive\n\n"
         await asyncio.sleep(poll_seconds)
+        if await request.is_disconnected():
+            break
 
 
 @app.get("/gameweeks/current/live/stream")

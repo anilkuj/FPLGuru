@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** ✅ Foundation (PR #1), ✅ P1c Basic xP (PR #2), ✅ P1a Team Linking (PR #3) — all merged to `main`. **P1d FDR Table in progress** on `feature/p1d-fdr` (Tasks 1–3 done, Task 4 docs finishing). Scope pivot 2026-08-27: product is **free, no Free/Pro tiers** — P1g (Stripe) + P4c (annual billing) dropped; P1a-auth optional.
+**Status:** ✅ Foundation (PR #1), ✅ P1c Basic xP (PR #2), ✅ P1a Team Linking (PR #3), ✅ P1d FDR Table (PR #4) — all merged to `main`. **P1b Live Scores & GW Live in progress** on `feature/p1b-live-scores` (Tasks 1–7 done, Task 8 docs finishing). Scope pivot 2026-08-27: product is **free, no Free/Pro tiers** — P1g (Stripe) + P4c (annual billing) dropped; P1a-auth optional.
 **Last updated:** 2026-08-27.
-**Branch:** `feature/p1d-fdr` (off `main`), not pushed.
+**Branch:** `feature/p1b-live-scores` (off `main`), not pushed.
 
 ---
 
@@ -85,7 +85,7 @@ Plan: [`docs/plans/2026-08-27-p1a-team-dashboard.md`](plans/2026-08-27-p1a-team-
 
 **Live-verified:** `POST /link/1` → "Chris Musson"; `GET /entries/1` → 15 picks with xP (Raya GK 11.0, Tzolis MID 9.5); `GET /entries/1/history` → GW1 (41 pts). 87 py tests + 3 web tests, `-W error` / `ruff` / `alembic check` clean, `next build` clean. Next: review → PR `feature/p1a-team-dashboard` → `main`.
 
-**Remaining unblocked Phase-1 path:** P1b (live/GW Live) → P1e (alerts + priority ranking) → P1f (deadline reminders) → P1h (PWA). Blocked: P1a-auth (OAuth/email — optional, blocks nothing). P1g (Stripe) and P4c (annual billing) **dropped** — product is free, no tiers.
+**Remaining unblocked Phase-1 path:** P1e (alerts + priority ranking) → P1f (deadline reminders) → P1h (PWA). Blocked: P1a-auth (OAuth/email — optional, blocks nothing). P1g (Stripe) and P4c (annual billing) **dropped** — product is free, no tiers.
 
 **P1c notes:** hand-rolled ridge (no scikit-learn — dodges SAC native-binary block); Basic model is FPL-data-only + leak-safe features (rolling form, minutes, home/away, price, opp-conceded-to-position); component breakdown (`x_*` cols) left 0.0 for Basic, filled in Advanced (P2b). Test seeding must be **FK-parent-first** (models have no `relationship()` → single `add_all` flushes in alphabetical class order). Real training/backtest needs `python scripts/fetch_historical.py 2022-23 2023-24 2024-25` first (gitignored `data/historical/`). New `DataSyncLog.source` values `fpl_gw_stats` / `xp_compute` — Task 14 must extend `/status`'s hardcoded source tuple (or make it enumerate `distinct(source)`).
 
@@ -110,7 +110,28 @@ Plan: [`docs/plans/2026-08-27-p1d-fdr-table.md`](plans/2026-08-27-p1d-fdr-table.
 
 **Implementer caught 2 real bugs in the plan's verbatim Task 1 code:** `round(fdr, 2)` broke an exact-arithmetic test assertion (→ store `fdr` unrounded); baseline = mean(goals-for only) mis-ordered att/def (→ pool both scored and conceded per-game). Plan's Task 1 code block + test count synced on disk (`45b119c`).
 
-**Verification (repo state after Task 3):** `python -m pytest -q` → **93 passed**, no warnings; `ruff check .` clean; `alembic check` clean (P1d adds no tables); `pnpm --filter web test` → 4 passed; `pnpm --filter web build` → `/fdr` prerendered OK. Next: docs commit → PR `feature/p1d-fdr` → `main`.
+**Verification (repo state after Task 3):** `python -m pytest -q` → **93 passed**, no warnings; `ruff check .` clean; `alembic check` clean (P1d adds no tables); `pnpm --filter web test` → 4 passed; `pnpm --filter web build` → `/fdr` prerendered OK. **Merged to `main` as PR #4 (`8b4dbc2`).**
+
+---
+
+## P1b — Live Scores & GW Live (branch `feature/p1b-live-scores`)
+
+Plan: [`docs/plans/2026-08-27-p1b-live-scores.md`](plans/2026-08-27-p1b-live-scores.md). Executed inline by the coordinator (the first Task-1 subagent died on a session limit; remaining tasks done directly), same TDD + full-verification discipline.
+
+| Task | What | Status |
+|---|---|---|
+| 1 | `packages/live` (`fplguru-live`) — `project_bonus` (rank-position tie rule) + `build_live_rows` | ✅ `f13b1ac` |
+| 2 | `player_gw_live` table + `fixtures.started/finished_provisional/minutes` (`0004`) + `normalize_fixtures` | ✅ `fe519b0` |
+| 3 | worker `_poll_live` + `poll_live` task + `poll-live` Beat entry + `live_poll_seconds`/`live_stream_poll_seconds` settings | ✅ `6037c5c` |
+| 4+5 | `GET /gameweeks/current/live` snapshot + `GET /gameweeks/current/live/stream` (hand-rolled SSE) | ✅ `c8fac65` |
+| 6+7 | web `getLive` + types; `/live` page + `LiveBoard` (EventSource + 15s poll fallback + my-players filter); nav link | ✅ `d9642e4` |
+| 8 | docs (README GW Live section + endpoints, master plan ✅, this file) + final verification | 🔧 finishing |
+
+**Bonus model:** `project_bonus({player_id: bps})` → standard-competition rank of positive BPS; rank 0→+3, 1→+2, 2→+1 (so BPS 30, 30, 25 → +3, +3, +1). `build_live_rows` groups by `explain[].fixture` (DGW-safe, bonus summed across a player's fixtures); when `explain` is absent it falls back to one synthetic bucket keyed on `stats.bps`. `poll_live` only calls `event/{gw}/live` when a current-GW fixture has `started and not finished`; otherwise it just refreshes fixture scores/state and writes an `ok` audit row.
+
+**Deviations from the plan:** Tasks 4 and 5 landed in one commit (they share `_live_snapshot`). The SSE test drives the `_live_event_stream` async generator directly + asserts the route's media-type/headers — httpx's `ASGITransport` buffers responses so it cannot consume a real stream. `is_disconnected()` is checked *after* the first `yield` (a pre-yield check can block under some Starlette versions). Env prefix is `FPLGURU_` so the Beat cadence var is `FPLGURU_LIVE_POLL_SECONDS`.
+
+**Verification (repo state after Task 7):** `python -m pytest -q -W error` → **109 passed**, no warnings; `ruff check .` clean; `alembic check` clean; web `vitest run` → 5 passed; `next build` → `/live` prerendered OK. Next: docs commit → PR `feature/p1b-live-scores` → `main`. **Live end-to-end (real FPL data during a match window) not yet verified** — do this once a GW is in play.
 
 ---
 

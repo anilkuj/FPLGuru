@@ -19,7 +19,9 @@ packages/ingest        pure fetch→row normalizers (FPL bootstrap/fixtures + hi
 packages/ml            (stub — xP engine lands in a later sub-plan)
 services/api           FastAPI: /health /ready /gameweeks /gameweeks/current /status
                        /link/{id} /entries/{id}[/history] /xp /players/{id}/xp /fdr
-services/worker        Celery worker + Beat: sync_bootstrap / sync_fixtures
+                       /gameweeks/current/live[/stream]
+services/worker        Celery worker + Beat: sync_bootstrap / sync_fixtures / sync_gw_stats
+                       / compute_xp / sync_linked_teams / poll_live
 apps/web               Next.js 16 (App Router) PWA shell
 alembic/               async migrations
 infra/                 docker-compose (Postgres 16 + Redis 7)
@@ -116,6 +118,23 @@ scores plus a 1–5 `band`. Horizon 1–10, available to everyone.
 ```
 
 xG-for/against and clean-sheet-probability columns arrive with the Advanced data tier (P2a).
+
+## GW Live
+
+While matches are in play, the worker's `poll_live` task (Beat cadence
+`FPLGURU_LIVE_POLL_SECONDS`, default 60) pulls `event/{gw}/live`, projects provisional
+3/2/1 bonus per fixture from BPS (standard-competition rank: BPS 30, 30, 25 → +3, +3, +1),
+and upserts `player_gw_live`. The web `/live` page subscribes over SSE and falls back to a
+15s poll if the stream errors.
+
+```bash
+#   GET /gameweeks/current/live         -> ranked live points + bonus projection + fixtures
+#   GET /gameweeks/current/live/stream  -> text/event-stream; a fresh snapshot on each change
+```
+
+`poll_live` is a no-op (with an `ok` audit row) when no fixture is in play. Bonus is a live
+projection until fixtures are final; finished-GW scoring is served from `player_gw_stats`
+(the xP / actuals path), not this table.
 
 Latest backtest: [`docs/xp-backtest/2026-08-27.md`](docs/xp-backtest/2026-08-27.md) — all four
 position groups beat the naive-mean baseline.
