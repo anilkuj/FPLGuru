@@ -518,7 +518,7 @@ def test_rolling_is_leak_free_and_shifted():
     saka = df[(df.player_name == "Saka")].sort_values("gameweek")
     # GW4 row: form over prior 3 appearances (GW1,2,3 points 8,6,2), weights 3,2,1 -> (24+12+2)/6
     row4 = saka[saka.gameweek == 4].iloc[0]
-    assert math.isclose(row4["form_points_3"], (8 * 3 + 6 * 2 + 2 * 1) / 6, rel_tol=1e-6)
+    assert math.isclose(row4["form_points_3"], (8 * 1 + 6 * 2 + 2 * 3) / 6, rel_tol=1e-6)
     assert row4["target"] == 13
     # GW1 & GW2 rows have < 3 priors -> dropped (NaN form)
     assert saka.gameweek.min() == 4 or saka.gameweek.min() == 3  # GW3 has 2 priors; see impl note
@@ -656,7 +656,7 @@ def test_feature_row_from_history_matches_frame_semantics():
         opp_conceded_to_pos_5=3.5,
     )
     assert set(row) == set(FEATURE_NAMES)
-    assert abs(row["form_points_3"] - (8 * 3 + 6 * 2 + 2 * 1) / 6) < 1e-9
+    assert abs(row["form_points_3"] - (8 * 1 + 6 * 2 + 2 * 3) / 6) < 1e-9
     assert row["was_home"] == 1.0 and row["value"] == 101.0
 
 
