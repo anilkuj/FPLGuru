@@ -76,7 +76,7 @@ Target: `total_points` in the target GW. **One ridge model per position group** 
 
 **Files:**
 - Modify: `packages/ml/pyproject.toml`
-- Test: `packages/ml/tests/test_smoke.py`
+- Test: `packages/ml/tests/test_ml_smoke.py`
 
 - [ ] **Step 1: Set deps**
 
@@ -93,13 +93,13 @@ Add `-e ./packages/ml` is already in `requirements-dev.txt`. Run `python -m pip 
 
 - [ ] **Step 2: Failing test**
 
-`packages/ml/tests/test_smoke.py`:
+`packages/ml/tests/test_ml_smoke.py`:
 ```python
 def test_imports():
     import fplguru_ml  # noqa: F401
     import numpy, pandas  # noqa: F401
 ```
-Run: `python -m pytest packages/ml/tests/test_smoke.py -v` → PASS (package already exists as a stub; this just asserts numpy/pandas resolve under the `<2.5` pin).
+Run: `python -m pytest packages/ml/tests/test_ml_smoke.py -v` → PASS (package already exists as a stub; this just asserts numpy/pandas resolve under the `<2.5` pin).
 
 - [ ] **Step 3: Commit**
 
