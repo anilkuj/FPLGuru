@@ -24,6 +24,7 @@ from fplguru_ingest.fpl import (
     normalize_teams,
 )
 from fplguru_worker.app import celery_app
+from fplguru_worker.xp import compute_and_store_xp
 
 logger = logging.getLogger("fplguru.worker")
 
@@ -225,5 +226,13 @@ async def _sync_gw_stats() -> None:
 def sync_gw_stats(self) -> None:
     try:
         asyncio.run(_run_and_dispose(_sync_gw_stats))
+    except Exception as exc:
+        raise self.retry(exc=exc) from exc
+
+
+@celery_app.task(name="compute_xp", bind=True, max_retries=3, default_retry_delay=120)
+def compute_xp(self) -> None:
+    try:
+        asyncio.run(_run_and_dispose(lambda: compute_and_store_xp(horizon=5)))
     except Exception as exc:
         raise self.retry(exc=exc) from exc

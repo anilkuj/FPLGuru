@@ -13,6 +13,7 @@ celery_app.conf.update(
         "sync-bootstrap": {"task": "sync_bootstrap", "schedule": 900.0},   # every 15 min
         "sync-fixtures": {"task": "sync_fixtures", "schedule": 3600.0},    # hourly
         "sync-gw-stats": {"task": "sync_gw_stats", "schedule": 3600.0},    # hourly
+        "compute-xp": {"task": "compute_xp", "schedule": 3600.0},          # hourly
     },
 )
 
