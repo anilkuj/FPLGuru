@@ -80,6 +80,48 @@ def normalize_fixtures(fixtures: list[dict[str, Any]]) -> list[dict]:
     ]
 
 
+def normalize_entry(payload: dict[str, Any]) -> dict:
+    first = payload.get("player_first_name", "")
+    last = payload.get("player_last_name", "")
+    return {
+        "fpl_entry_id": payload["id"],
+        "manager_name": f"{first} {last}".strip(),
+        "started_event": payload.get("started_event"),
+        "favourite_team_id": payload.get("favourite_team"),
+    }
+
+
+def normalize_entry_history(payload: dict[str, Any]) -> list[dict]:
+    return [
+        {
+            "gameweek_id": r["event"],
+            "points": r["points"],
+            "total_points": r["total_points"],
+            "overall_rank": r.get("overall_rank"),
+            "bank": r["bank"],
+            "team_value": r["value"],
+            "transfers": r["event_transfers"],
+            "transfer_cost": r["event_transfers_cost"],
+            "points_on_bench": r["points_on_bench"],
+        }
+        for r in payload.get("current", [])
+    ]
+
+
+def normalize_entry_picks(gameweek_id: int, payload: dict[str, Any]) -> list[dict]:
+    return [
+        {
+            "gameweek_id": gameweek_id,
+            "player_id": p["element"],
+            "slot": p["position"],
+            "multiplier": p["multiplier"],
+            "is_captain": bool(p["is_captain"]),
+            "is_vice": bool(p["is_vice_captain"]),
+        }
+        for p in payload.get("picks", [])
+    ]
+
+
 def normalize_event_live(gameweek_id: int, payload: dict[str, Any]) -> list[dict]:
     out = []
     for el in payload["elements"]:

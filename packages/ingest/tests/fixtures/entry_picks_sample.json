@@ -1,0 +1,5 @@
+{"active_chip": null, "automatic_subs": [], "entry_history": {},
+ "picks": [
+   {"element": 11, "position": 1, "multiplier": 1, "is_captain": false, "is_vice_captain": false, "element_type": 1},
+   {"element": 12, "position": 12, "multiplier": 2, "is_captain": true, "is_vice_captain": false, "element_type": 3}
+]}

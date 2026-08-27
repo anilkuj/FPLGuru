@@ -1,0 +1,6 @@
+{"current": [
+  {"event": 1, "points": 55, "total_points": 55, "rank": 100, "overall_rank": 250000,
+   "bank": 5, "value": 1000, "event_transfers": 0, "event_transfers_cost": 0, "points_on_bench": 8},
+  {"event": 2, "points": 60, "total_points": 115, "rank": 90, "overall_rank": 180000,
+   "bank": 2, "value": 1003, "event_transfers": 1, "event_transfers_cost": 4, "points_on_bench": 5}
+], "past": [], "chips": []}
