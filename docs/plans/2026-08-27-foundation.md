@@ -179,7 +179,7 @@ Expected: 1 passed.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "chore: scaffold pip/pnpm monorepo (venv + editable installs)"
 ```
 
@@ -302,7 +302,7 @@ docker compose -f infra/docker-compose.yml up -d --wait
 Expected: exits 0 once healthy; `docker compose -f infra/docker-compose.yml ps` shows `postgres` as `Up (healthy)` and `redis` as `Up`.
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "feat: local docker-compose infra and core settings"
 ```
 
@@ -499,7 +499,7 @@ Expected: 3 passed.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "feat: core SQLAlchemy models and async session"
 ```
 
@@ -650,7 +650,7 @@ Expected: 1 passed (test DB `fplguru_test` auto-created).
 - [ ] **Step 7: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "feat: alembic async migrations and pytest postgres fixtures"
 ```
 
@@ -792,7 +792,7 @@ Expected: 4 passed.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "feat: resilient async FPL API client with retry/backoff"
 ```
 
@@ -997,7 +997,7 @@ Expected: 4 passed.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "feat: pure FPL bootstrap/fixtures normalizers with fixtures"
 ```
 
@@ -1221,7 +1221,7 @@ Expected: 2 passed.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "feat: celery worker with idempotent sync_bootstrap task"
 ```
 
@@ -1297,7 +1297,7 @@ Expected: 1 passed.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "test: sync_fixtures persistence and beat schedule wiring"
 ```
 
@@ -1368,7 +1368,7 @@ Expected: all worker tests pass (5 tests across 4 files).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "feat: record DataSyncLog error row when FPL API is unavailable"
 ```
 
@@ -1552,7 +1552,7 @@ Expected: JSON for the real current/next gameweek.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "feat: FastAPI service with health, status, and gameweek endpoints"
 ```
 
@@ -1692,7 +1692,7 @@ Add `data/` to `.gitignore`.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "feat: historical merged_gw normalizer and downloader for xP backtests"
 ```
 
@@ -1770,7 +1770,7 @@ Expected: migrations apply, all Python tests pass. (`ruff` is CI-only — SAC bl
 - [ ] **Step 3: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "ci: lint + migrate + pytest with postgres/redis service containers"
 ```
 
@@ -1906,7 +1906,7 @@ Expected: test passes; `next build` succeeds.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "feat: next.js PWA shell reading /status with manifest"
 ```
 
@@ -1975,7 +1975,7 @@ Verify each and check the box:
 - [ ] **Step 3: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "docs: README and Foundation acceptance checklist"
 ```
 
