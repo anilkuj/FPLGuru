@@ -176,8 +176,11 @@ def compute_fdr(teams, fixtures, gameweeks, *, start_gw: int, horizon: int,
         ga = sum(r[1] for r in rows) / len(rows)
         return gf, ga
 
-    all_gf = [gf for tid in played for gf, _ in [form(tid)] if gf is not None]
-    baseline = (sum(all_gf) / len(all_gf)) if all_gf else _DEFAULT_BASELINE
+    # baseline = mean goals-per-game pooled over BOTH scored and conceded across all played teams
+    _goals = [
+        v for tid in played for pair in [form(tid)] if pair is not None for v in pair
+    ]
+    baseline = (sum(_goals) / len(_goals)) if _goals else _DEFAULT_BASELINE
 
     out: list[dict] = []
     for t in teams:
@@ -219,7 +222,7 @@ def compute_fdr(teams, fixtures, gameweeks, *, start_gw: int, horizon: int,
                 "is_home": is_home,
                 "att_fdr": round(att_fdr, 2),
                 "def_fdr": round(def_fdr, 2),
-                "fdr": round(fdr, 2),
+                "fdr": fdr,  # unrounded; band + avg derive from it
                 "band": int(round(fdr)),
                 "opponent_form": opp_form_out,
             })
@@ -525,7 +528,7 @@ export function FdrGrid() {
 ## Self-Review
 
 **Spec coverage (master §3 P1d / PRD §4.6):**
-- Platform-computed FDR per team, not raw FPL fixture difficulty → Task 1 ✓ (strength tier + result form blend)
+- Platform-computed FDR per team, not raw FPL fixture difficulty → Task 1 (strength tier + result form blend)
 - Horizon selector 1–10, all users (no tier) → Tasks 2, 3 ✓
 - Colour-coded grid, sortable → Task 3 (easiest-first from API `avg_fdr` sort) ✓
 - xG-for/against + clean-sheet-probability columns → **deferred** — needs Understat (P2a, blocked). `att_fdr` / `def_fdr` split partially covers the intent (scoring vs clean-sheet difficulty).
