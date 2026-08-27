@@ -1,12 +1,14 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException
-from sqlalchemy import desc, select, text
+from fastapi import Depends, FastAPI, HTTPException, Query
+from sqlalchemy import desc, distinct, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fplguru_core.db import dispose_engine, get_sessionmaker
-from fplguru_core.models import DataSyncLog, Gameweek
+from fplguru_core.models import DataSyncLog, Gameweek, Player, PlayerGwPrediction
+
+_MODEL_VERSION = "basic-v1"
 
 
 @asynccontextmanager
@@ -72,7 +74,9 @@ async def current_gameweek(db: AsyncSession = Depends(get_db)) -> dict | None:
 @app.get("/status")
 async def status(db: AsyncSession = Depends(get_db)) -> dict:
     sources: dict[str, dict] = {}
-    for source in ("fpl_bootstrap", "fpl_fixtures"):
+    known = {"fpl_bootstrap", "fpl_fixtures"}
+    present = set((await db.execute(select(distinct(DataSyncLog.source)))).scalars().all())
+    for source in sorted(known | present):
         row = (
             await db.execute(
                 select(DataSyncLog)
@@ -87,3 +91,48 @@ async def status(db: AsyncSession = Depends(get_db)) -> dict:
             else {"status": "unknown", "as_of": None}
         )
     return {"sources": sources}
+
+
+@app.get("/xp")
+async def xp_list(horizon: int = Query(5, ge=1, le=5),
+                  db: AsyncSession = Depends(get_db)) -> list[dict]:
+    rows = (await db.execute(
+        select(PlayerGwPrediction, Player)
+        .join(Player, Player.id == PlayerGwPrediction.player_id)
+        .where(PlayerGwPrediction.model_version == _MODEL_VERSION,
+               PlayerGwPrediction.horizon_gw <= horizon)
+    )).all()
+    agg: dict[int, dict] = {}
+    for pred, player in rows:
+        d = agg.setdefault(player.id, {
+            "player_id": player.id, "web_name": player.web_name,
+            "position": player.position, "now_cost": player.now_cost, "xp_total": 0.0,
+        })
+        d["xp_total"] += pred.xp
+    return sorted(agg.values(), key=lambda d: d["xp_total"], reverse=True)
+
+
+@app.get("/players/{player_id}/xp")
+async def player_xp(player_id: int, horizon: int = Query(5, ge=1, le=5),
+                    db: AsyncSession = Depends(get_db)) -> dict:
+    player = (await db.execute(
+        select(Player).where(Player.id == player_id)
+    )).scalar_one_or_none()
+    preds = (await db.execute(
+        select(PlayerGwPrediction)
+        .where(PlayerGwPrediction.player_id == player_id,
+               PlayerGwPrediction.model_version == _MODEL_VERSION,
+               PlayerGwPrediction.horizon_gw <= horizon)
+        .order_by(PlayerGwPrediction.horizon_gw)
+    )).scalars().all()
+    if player is None or not preds:
+        raise HTTPException(status_code=404, detail="no predictions for player")
+    return {
+        "player_id": player.id, "web_name": player.web_name, "position": player.position,
+        "xp_total": float(sum(p.xp for p in preds)),
+        "per_gw": [
+            {"horizon_gw": p.horizon_gw, "gameweek_id": p.gameweek_id, "xp": p.xp,
+             "floor": p.xp_floor, "ceiling": p.xp_ceiling}
+            for p in preds
+        ],
+    }

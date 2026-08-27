@@ -38,6 +38,8 @@ async def test_status_reports_last_sync(client, db_session):
     now = datetime(2025, 8, 20, 12, 0, tzinfo=UTC)
     db_session.add(DataSyncLog(source="fpl_bootstrap", status="ok",
                                started_at=now, finished_at=now))
+    db_session.add(DataSyncLog(source="xp_compute", status="ok",
+                               started_at=now, finished_at=now))
     await db_session.commit()
 
     r = await client.get("/status")
@@ -45,3 +47,4 @@ async def test_status_reports_last_sync(client, db_session):
     assert body["sources"]["fpl_bootstrap"]["status"] == "ok"
     assert body["sources"]["fpl_bootstrap"]["as_of"].startswith("2025-08-20T12:00:00")
     assert body["sources"]["fpl_fixtures"] == {"status": "unknown", "as_of": None}
+    assert body["sources"]["xp_compute"]["status"] == "ok"
