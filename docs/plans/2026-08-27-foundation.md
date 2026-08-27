@@ -1333,6 +1333,7 @@ git commit -m "feat: celery worker with idempotent sync_bootstrap task"
 `services/worker/tests/test_sync_fixtures.py`:
 ```python
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -1351,10 +1352,11 @@ BASE = "https://fpl.test/api"
 @respx.mock
 async def test_sync_fixtures_persists_scheduled_and_unscheduled(db_session, monkeypatch):
     monkeypatch.setenv("FPLGURU_FPL_API_BASE", BASE)
-    # FK prerequisites
+    # FK prerequisites — deadline_time is DateTime(timezone=True); asyncpg needs a real datetime
     db_session.add_all([
         Team(id=1, name="Arsenal", short_name="ARS"),
-        Gameweek(id=1, name="Gameweek 1", deadline_time="2025-08-15T17:30:00+00:00"),
+        Gameweek(id=1, name="Gameweek 1",
+                 deadline_time=datetime(2025, 8, 15, 17, 30, tzinfo=UTC)),
     ])
     await db_session.commit()
     respx.get(f"{BASE}/fixtures/").mock(return_value=httpx.Response(200, json=FIXTURES))
@@ -1513,10 +1515,10 @@ async def test_health(client):
 
 async def test_gameweeks_and_current(client, db_session):
     db_session.add_all([
-        Gameweek(id=1, name="Gameweek 1", deadline_time="2025-08-15T17:30:00+00:00",
-                 finished=True),
-        Gameweek(id=2, name="Gameweek 2", deadline_time="2025-08-22T17:30:00+00:00",
-                 is_current=True),
+        Gameweek(id=1, name="Gameweek 1",
+                 deadline_time=datetime(2025, 8, 15, 17, 30, tzinfo=UTC), finished=True),
+        Gameweek(id=2, name="Gameweek 2",
+                 deadline_time=datetime(2025, 8, 22, 17, 30, tzinfo=UTC), is_current=True),
     ])
     await db_session.commit()
 
