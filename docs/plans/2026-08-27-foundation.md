@@ -4,9 +4,11 @@
 
 **Goal:** Stand up the FPLGuru monorepo and a resilient pipeline that keeps a Postgres database continuously in sync with the official FPL API (teams, players, fixtures, gameweeks), with sync-status tracking for graceful degradation, plus a minimal FastAPI service and Next.js PWA shell that read from it.
 
-**Architecture:** uv workspace of Python packages (`core`, `fpl_client`, `ingest`, `ml`) and services (`api`, `worker`); pnpm workspace for `apps/web`. Ingest logic is pure (fetch → normalized rows) and DB-free so it's unit-testable against recorded fixtures; a Celery worker persists rows via Postgres `ON CONFLICT` upserts on a Beat schedule; FastAPI serves read-only endpoints; every sync writes a `data_sync_log` row so the UI can show "data as of X" and fall back to last-known state when the FPL API is down.
+**Architecture:** A single root virtualenv with editable (`pip install -e`) installs of the Python packages (`core`, `fpl_client`, `ingest`, `ml`) and services (`api`, `worker`); pnpm workspace (via `corepack`) for `apps/web`. Ingest logic is pure (fetch → normalized rows) and DB-free so it's unit-testable against recorded fixtures; a Celery worker persists rows via Postgres `ON CONFLICT` upserts on a Beat schedule; FastAPI serves read-only endpoints; every sync writes a `data_sync_log` row so the UI can show "data as of X" and fall back to last-known state when the FPL API is down.
 
-**Tech Stack:** Python 3.12, FastAPI, SQLAlchemy 2.0 async + asyncpg, Alembic, Celery + Redis, httpx + tenacity, pytest + pytest-asyncio + respx, Next.js 15 + TypeScript + Tailwind + Vitest, Docker Compose (Postgres 16, Redis 7), GitHub Actions, uv, pnpm, ruff.
+**Tech Stack:** Python 3.12 (python.org build), `venv` + `pip`, FastAPI, SQLAlchemy 2.0 async + asyncpg, Alembic, Celery + Redis, httpx + tenacity, pytest + pytest-asyncio + respx, Next.js 15 + TypeScript + Tailwind + Vitest, Docker Compose (Postgres 16, Redis 7), GitHub Actions, pnpm (via corepack), ruff (CI-only).
+
+> **Toolchain note — Smart App Control (SAC) is ON on the dev machine.** SAC blocks unsigned/unknown native binaries, so `uv` and standalone tool `.exe`s (`pytest.exe`, `ruff.exe`, …) are unusable locally. This plan therefore uses **`venv` + `pip`** and always invokes tools as **`python -m <tool>`** (`python -m pytest`, `python -m alembic`, `python -m uvicorn`, `python -m celery`). `ruff` runs **in CI only** (Linux runners, no SAC). If a native addon (`next`/`@next/swc`, `asyncpg` wheels) is ever SAC-blocked locally, run that piece in CI and note it — do not disable SAC.
 
 **Reference:** Derived from `PRD.md` §6.1–6.3, §5.6, §7. Parent: [`2026-08-27-fplguru-master-build-plan.md`](2026-08-27-fplguru-master-build-plan.md).
 
@@ -18,7 +20,8 @@
 
 | Path | Responsibility |
 |---|---|
-| `pyproject.toml` | uv workspace root; ruff config; dev deps (pytest, respx, ruff) |
+| `pyproject.toml` | root config only: `[tool.pytest.ini_options]` + `[tool.ruff]` (no project deps) |
+| `requirements-dev.txt` | editable installs of all 6 local packages + test deps (pytest, pytest-asyncio, respx, httpx, asgi-lifespan, alembic) |
 | `pnpm-workspace.yaml` | pnpm workspace declaring `apps/*` |
 | `.env.example`, `.gitignore`, `README.md` | env template, ignores, run instructions |
 | `infra/docker-compose.yml` | local Postgres 16 + Redis 7 |
@@ -37,23 +40,27 @@
 
 ---
 
-## Task 1: Repo & workspace scaffold
+## Task 1: Repo & package scaffold
 
 **Files:**
-- Create: `pyproject.toml`, `pnpm-workspace.yaml`, `.gitignore`, `.env.example`
+- Create: `pyproject.toml`, `.gitattributes`, `requirements-dev.txt`, `pnpm-workspace.yaml`, `.env.example`
+- Modify: `.gitignore` (already present from repo setup)
 - Create: `packages/{core,fpl_client,ingest,ml}/src/<pkg>/__init__.py` + each `pyproject.toml`
 - Create: `services/{api,worker}/src/<pkg>/__init__.py` + each `pyproject.toml`
 
-- [ ] **Step 1: Initialize git**
+> **Preconditions (already done during repo setup, verify only):** repo is a git repo, current branch is `feature/foundation`, `origin` = `https://github.com/anilkuj/FPLGuru.git`, `.gitignore` exists and contains `.venv/`, `.env`, `data/`, `node_modules/`. Python 3.12 from python.org is installed and reachable via **`py -3.12`** (the bare `python` command resolves to the Windows Store stub — that is expected; the venv provides a working `python` once activated). A separate Python 3.14 may also be present — ignore it, always pin `py -3.12`.
+
+- [ ] **Step 1: Verify preconditions**
 
 Run:
 ```bash
-cd D:/AntiGravity/FPLGuru && git init && git branch -m main
+git branch --show-current && py -3.12 --version && cat .gitignore
 ```
-Expected: `Initialized empty Git repository`.
+Expected: `feature/foundation`, `Python 3.12.x`, `.gitignore` listing `.venv/` `.env` `data/` etc. If `py -3.12` fails or reports a different version, STOP and report BLOCKED.
 
-- [ ] **Step 2: Write `.gitignore`**
+- [ ] **Step 2: Ensure `.gitignore` covers Python venv + build**
 
+`.gitignore` must contain (append any missing lines):
 ```gitignore
 __pycache__/
 *.pyc
@@ -66,38 +73,15 @@ apps/web/.next/
 dist/
 *.egg-info/
 .coverage
+data/
 ```
 
-- [ ] **Step 3: Write workspace root `pyproject.toml`**
+- [ ] **Step 3: Write root `pyproject.toml` (config only — no deps, no uv) and `.gitattributes`**
 
 ```toml
-[project]
-name = "fplguru"
-version = "0.0.0"
-requires-python = ">=3.12"
-dependencies = []
-
-[dependency-groups]
-dev = [
-    "pytest>=8.2",
-    "pytest-asyncio>=0.23",
-    "respx>=0.21",
-    "httpx>=0.27",
-    "ruff>=0.6",
-    "asgi-lifespan>=2.1",
-]
-
-[tool.uv.workspace]
-members = ["services/*", "packages/*"]
-
-[tool.uv.sources]
-fplguru-core = { workspace = true }
-fplguru-fpl-client = { workspace = true }
-fplguru-ingest = { workspace = true }
-fplguru-ml = { workspace = true }
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
 testpaths = ["packages", "services"]
 
 [tool.ruff]
@@ -108,16 +92,45 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B"]
 ```
 
-- [ ] **Step 4: Write `pnpm-workspace.yaml`**
+`asyncio_default_fixture_loop_scope = "session"` is required by pytest-asyncio 1.x so Task 4's session-scoped async `db_engine` fixture shares one event loop with the function-scoped tests that use it.
+
+`.gitattributes` (repo has `core.autocrlf=true`; without this, fresh clones check out CRLF and break Linux/Docker text files + Task 6's byte-exact JSON fixtures):
+```gitattributes
+* text=auto eol=lf
+*.png binary
+*.ico binary
+```
+
+- [ ] **Step 4: Write `requirements-dev.txt` (leaf-first editable installs + test deps)**
+
+```text
+-e ./packages/core
+-e ./packages/fpl_client
+-e ./packages/ingest
+-e ./packages/ml
+-e ./services/api
+-e ./services/worker
+
+pytest>=8.2
+pytest-asyncio>=1.0,<2
+respx>=0.21
+httpx>=0.27
+asgi-lifespan>=2.1
+alembic>=1.13
+```
+
+Order matters: `core` is installed before the packages that depend on it, so pip resolves the `fplguru-core` requirement to the local editable project rather than PyPI. `ruff` is intentionally absent — it runs in CI only (see the Toolchain note at the top).
+
+- [ ] **Step 5: Write `pnpm-workspace.yaml`**
 
 ```yaml
 packages:
   - "apps/*"
 ```
 
-- [ ] **Step 5: Create each Python package/service skeleton**
+- [ ] **Step 6: Create each Python package/service skeleton**
 
-For each of `packages/core`, `packages/fpl_client`, `packages/ingest`, `packages/ml`, `services/api`, `services/worker`: create `src/<import_name>/__init__.py` (empty) and `pyproject.toml`. Template (substitute name/import_name/deps per package — deps filled in later tasks, start with `[]`):
+For each of `packages/core`, `packages/fpl_client`, `packages/ingest`, `packages/ml`, `services/api`, `services/worker`: create `src/<import_name>/__init__.py` (empty) and `pyproject.toml`. Template (substitute name/import_name per package — deps start as `[]`, filled in by later tasks):
 
 ```toml
 [project]
@@ -136,15 +149,20 @@ packages = ["src/fplguru_core"]
 
 Import-name map: core→`fplguru_core`, fpl_client→`fplguru_fpl_client`, ingest→`fplguru_ingest`, ml→`fplguru_ml`, api→`fplguru_api`, worker→`fplguru_worker`.
 
-- [ ] **Step 6: Sync and verify the workspace resolves**
+- [ ] **Step 7: Create the virtualenv and install everything editable**
 
-Run:
+Run (from repo root):
 ```bash
-uv sync
+py -3.12 -m venv .venv
 ```
-Expected: creates `.venv`, resolves all 6 workspace members, exit 0.
+Then activate it — **Git Bash:** `source .venv/Scripts/activate` · **PowerShell:** `.venv\Scripts\Activate.ps1` · **cmd:** `.venv\Scripts\activate.bat`. Confirm `python -c "import sys; print(sys.version)"` reports 3.12.x from inside `.venv`. Then:
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements-dev.txt
+```
+Expected: all 6 local packages install in editable mode, test deps resolve, exit 0. Every later `python -m ...` command in this plan assumes this venv is active.
 
-- [ ] **Step 7: Add a trivial import test**
+- [ ] **Step 8: Add a trivial import test**
 
 Create `packages/core/tests/test_smoke.py`:
 ```python
@@ -154,15 +172,15 @@ def test_package_imports():
 
 Run:
 ```bash
-uv run pytest packages/core/tests/test_smoke.py -v
+python -m pytest packages/core/tests/test_smoke.py -v
 ```
 Expected: 1 passed.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add -A
-git commit -m "chore: scaffold uv/pnpm monorepo workspace"
+git add -A -- ':!docs'
+git commit -m "chore: scaffold pip/pnpm monorepo (venv + editable installs)"
 ```
 
 ---
@@ -179,6 +197,8 @@ git commit -m "chore: scaffold uv/pnpm monorepo workspace"
 - [ ] **Step 1: Write `infra/docker-compose.yml`**
 
 ```yaml
+name: fplguru
+
 services:
   postgres:
     image: postgres:16
@@ -188,6 +208,11 @@ services:
       POSTGRES_DB: fplguru
     ports: ["5432:5432"]
     volumes: ["fplguru_pg:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fplguru -d fplguru"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
   redis:
     image: redis:7
     ports: ["6379:6379"]
@@ -195,9 +220,11 @@ volumes:
   fplguru_pg:
 ```
 
+The `postgres` healthcheck lets Task 4 use `up -d --wait` so `alembic` doesn't race the server's startup. `name: fplguru` keeps container/volume names stable regardless of the compose file's directory.
+
 - [ ] **Step 2: Add dependency**
 
-In `packages/core/pyproject.toml` set `dependencies = ["pydantic-settings>=2.3", "pydantic>=2.7"]`, then run `uv sync`.
+In `packages/core/pyproject.toml` set `dependencies = ["pydantic-settings>=2.3,<3", "pydantic>=2.7,<3"]` (upper bounds so a future pydantic 3 can't silently shift the whole stack), then run `pip install -r requirements-dev.txt`.
 
 - [ ] **Step 3: Write the failing test**
 
@@ -206,7 +233,12 @@ In `packages/core/pyproject.toml` set `dependencies = ["pydantic-settings>=2.3",
 from fplguru_core.settings import Settings
 
 
-def test_defaults_point_at_local_infra():
+def test_defaults_point_at_local_infra(monkeypatch):
+    for key in (
+        "FPLGURU_DATABASE_URL", "FPLGURU_REDIS_URL",
+        "FPLGURU_FPL_API_BASE", "FPLGURU_ENVIRONMENT",
+    ):
+        monkeypatch.delenv(key, raising=False)
     s = Settings(_env_file=None)
     assert s.database_url.startswith("postgresql+asyncpg://")
     assert s.redis_url.startswith("redis://")
@@ -220,7 +252,7 @@ def test_env_prefix_override(monkeypatch):
 
 - [ ] **Step 4: Run test to verify it fails**
 
-Run: `uv run pytest packages/core/tests/test_settings.py -v`
+Run: `python -m pytest packages/core/tests/test_settings.py -v`
 Expected: FAIL — `ModuleNotFoundError: fplguru_core.settings`.
 
 - [ ] **Step 5: Write `settings.py`**
@@ -249,14 +281,15 @@ def get_settings() -> Settings:
 
 - [ ] **Step 6: Run test to verify it passes**
 
-Run: `uv run pytest packages/core/tests/test_settings.py -v`
+Run: `python -m pytest packages/core/tests/test_settings.py -v`
 Expected: 2 passed.
 
-- [ ] **Step 7: Write `.env.example`**
+- [ ] **Step 7: Write `.env.example`** (already created in Task 1 — ensure it has all four keys)
 
 ```dotenv
 FPLGURU_DATABASE_URL=postgresql+asyncpg://fplguru:fplguru@localhost:5432/fplguru
 FPLGURU_REDIS_URL=redis://localhost:6379/0
+FPLGURU_FPL_API_BASE=https://fantasy.premierleague.com/api
 FPLGURU_ENVIRONMENT=local
 ```
 
@@ -264,14 +297,16 @@ FPLGURU_ENVIRONMENT=local
 
 Run:
 ```bash
-docker compose -f infra/docker-compose.yml up -d
+docker compose -f infra/docker-compose.yml up -d --wait
 ```
-Expected: `postgres` and `redis` containers running (`docker compose -f infra/docker-compose.yml ps` shows both `Up`).
+Expected: exits 0 once healthy; `docker compose -f infra/docker-compose.yml ps` shows `postgres` as `Up (healthy)` and `redis` as `Up`.
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "feat: local docker-compose infra and core settings"
 ```
+
+> Run `python -m pytest` from the **repo root** — `Settings.model_config` resolves `env_file=".env"` relative to CWD, so a stray `.env` elsewhere (or none) changes results.
 
 ---
 
@@ -289,14 +324,14 @@ git commit -m "feat: local docker-compose infra and core settings"
 Set `packages/core/pyproject.toml` `dependencies` to:
 ```toml
 dependencies = [
-    "pydantic>=2.7",
-    "pydantic-settings>=2.3",
-    "sqlalchemy[asyncio]>=2.0.30",
-    "asyncpg>=0.29",
+    "pydantic>=2.7,<3",
+    "pydantic-settings>=2.3,<3",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
     "greenlet>=3.0",
 ]
 ```
-Run `uv sync`.
+Run `pip install -r requirements-dev.txt`. (`sqlalchemy>=2.0.36` / `asyncpg>=0.30` are the first releases with wheels/support current on Python 3.12–3.13; keep them recent.)
 
 - [ ] **Step 2: Write `constants.py`**
 
@@ -307,17 +342,25 @@ POSITION_BY_ELEMENT_TYPE: dict[int, str] = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD
 
 - [ ] **Step 3: Write `db.py`**
 
+`get_engine` / `get_sessionmaker` are cached so production doesn't rebuild the pool per request. Because they read `get_settings()` (itself cached) at first call, a test that changes the DB URL must reset **all three** caches — so `db.py` exposes one `reset_state()` that does exactly that. Task 4's root `conftest.py` calls it via an autouse fixture; no test should hand-roll `get_settings.cache_clear()`.
+
 ```python
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from functools import lru_cache
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from fplguru_core.settings import get_settings
 
 
 @lru_cache
-def get_engine():
+def get_engine() -> AsyncEngine:
     return create_async_engine(get_settings().database_url, pool_pre_ping=True)
 
 
@@ -326,9 +369,31 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(get_engine(), expire_on_commit=False)
 
 
+@asynccontextmanager
 async def session_scope() -> AsyncIterator[AsyncSession]:
+    """Imperative session helper for scripts / one-off tasks.
+
+    Does NOT commit — call ``await session.commit()`` yourself. On exit the
+    session is closed (rolled back if not committed).
+    """
     async with get_sessionmaker()() as session:
         yield session
+
+
+async def dispose_engine() -> None:
+    """Dispose the cached engine's pool. Call from FastAPI lifespan shutdown."""
+    if get_engine.cache_info().currsize:
+        await get_engine().dispose()
+
+
+def reset_state() -> None:
+    """Clear cached settings/engine/sessionmaker. For tests only.
+
+    Does not dispose the dropped engine's pool; acceptable for tests.
+    """
+    get_sessionmaker.cache_clear()
+    get_engine.cache_clear()
+    get_settings.cache_clear()
 ```
 
 - [ ] **Step 4: Write the failing test**
@@ -355,7 +420,7 @@ def test_fixture_gameweek_is_nullable_for_unscheduled():
 
 - [ ] **Step 5: Run test to verify it fails**
 
-Run: `uv run pytest packages/core/tests/test_models.py -v`
+Run: `python -m pytest packages/core/tests/test_models.py -v`
 Expected: FAIL — `ModuleNotFoundError: fplguru_core.models`.
 
 - [ ] **Step 6: Write `models.py`**
@@ -364,13 +429,22 @@ Expected: FAIL — `ModuleNotFoundError: fplguru_core.models`.
 from datetime import datetime
 
 from sqlalchemy import (
-    BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, func,
+    BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, MetaData, String, func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
-    pass
+    # Deterministic constraint names so migrations aren't tied to Postgres defaults.
+    metadata = MetaData(
+        naming_convention={
+            "ix": "ix_%(column_0_label)s",
+            "uq": "uq_%(table_name)s_%(column_0_name)s",
+            "ck": "ck_%(table_name)s_%(constraint_name)s",
+            "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+            "pk": "pk_%(table_name)s",
+        }
+    )
 
 
 class _TimestampMixin:
@@ -381,7 +455,7 @@ class _TimestampMixin:
 
 class Team(_TimestampMixin, Base):
     __tablename__ = "teams"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)  # FPL team id
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # FPL team id
     name: Mapped[str] = mapped_column(String(64))
     short_name: Mapped[str] = mapped_column(String(8))
     strength_overall_home: Mapped[int] = mapped_column(Integer, default=0)
@@ -394,7 +468,7 @@ class Team(_TimestampMixin, Base):
 
 class Gameweek(_TimestampMixin, Base):
     __tablename__ = "gameweeks"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)  # event id 1..38
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # event id 1..38
     name: Mapped[str] = mapped_column(String(32))
     deadline_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     is_current: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -405,7 +479,7 @@ class Gameweek(_TimestampMixin, Base):
 
 class Player(_TimestampMixin, Base):
     __tablename__ = "players"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)  # FPL element id
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # FPL element id
     team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"))
     first_name: Mapped[str] = mapped_column(String(64))
     second_name: Mapped[str] = mapped_column(String(64))
@@ -414,14 +488,14 @@ class Player(_TimestampMixin, Base):
     now_cost: Mapped[int] = mapped_column(Integer)  # tenths of a million
     status: Mapped[str] = mapped_column(String(1))  # a/d/i/s/u/n
     chance_of_playing_next_round: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    news: Mapped[str] = mapped_column(String, default="")
+    news: Mapped[str] = mapped_column(String, default="", server_default="")
     selected_by_percent: Mapped[float] = mapped_column(Float, default=0.0)
     total_points: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class Fixture(_TimestampMixin, Base):
     __tablename__ = "fixtures"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)  # FPL fixture id
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # FPL fixture id
     gameweek_id: Mapped[int | None] = mapped_column(
         ForeignKey("gameweeks.id"), nullable=True
     )  # null = not yet scheduled to a GW
@@ -442,20 +516,20 @@ class DataSyncLog(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     source: Mapped[str] = mapped_column(String(32), index=True)  # fpl_bootstrap | fpl_fixtures
     status: Mapped[str] = mapped_column(String(16))  # ok | error
-    detail: Mapped[str] = mapped_column(String, default="")
+    detail: Mapped[str] = mapped_column(String, default="", server_default="")
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 ```
 
 - [ ] **Step 7: Run test to verify it passes**
 
-Run: `uv run pytest packages/core/tests/test_models.py -v`
+Run: `python -m pytest packages/core/tests/test_models.py -v`
 Expected: 3 passed.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "feat: core SQLAlchemy models and async session"
 ```
 
@@ -467,43 +541,48 @@ git commit -m "feat: core SQLAlchemy models and async session"
 - Create: `alembic.ini`, `alembic/env.py`, `alembic/script.py.mako`, `alembic/versions/0001_initial.py`
 - Create: `packages/core/tests/conftest.py` (shared DB fixture for all packages via root `conftest.py`)
 - Create: `conftest.py` (repo root — re-exports the db fixtures)
-- Modify: root `pyproject.toml` dev group (add `alembic>=1.13`)
 
-- [ ] **Step 1: Add Alembic and init async template**
+- [ ] **Step 1: Init the async Alembic template**
 
-Add `"alembic>=1.13"` to root `[dependency-groups] dev`, `uv sync`, then:
+`alembic>=1.13` is already in `requirements-dev.txt` (installed in Task 1). From the repo root with the venv active:
 ```bash
-uv run alembic init -t async alembic
+python -m alembic init -t async alembic
 ```
 Expected: creates `alembic/`, `alembic.ini`.
 
 - [ ] **Step 2: Point `alembic/env.py` at core metadata + settings**
 
-Replace the generated `target_metadata = None` and URL handling so `env.py` contains:
-```python
-from fplguru_core.models import Base
-from fplguru_core.settings import get_settings
+Edit the generated `alembic/env.py`:
 
-target_metadata = Base.metadata
+1. After the `config = context.config` line, add:
+   ```python
+   from fplguru_core.models import Base
+   from fplguru_core.settings import get_settings
 
-def _url() -> str:
-    return get_settings().database_url
-```
-and every `config.get_main_option("sqlalchemy.url")` call is replaced with `_url()`. Leave the rest of the async template intact.
+   config.set_main_option("sqlalchemy.url", get_settings().database_url)
+   ```
+   (Importing `fplguru_core.models` registers all 5 tables on `Base.metadata`. Our URL contains no `%`, so `set_main_option` needs no escaping.)
+2. Change `target_metadata = None` → `target_metadata = Base.metadata`.
+3. In both `run_migrations_offline()` and `run_migrations_online()` / `do_run_migrations`, ensure `context.configure(...)` passes `compare_type=True` **and** `compare_server_default=True`. After Step 4 run `python -m alembic check`; if `compare_server_default` yields a spurious `updated_at` diff (`now()` rendering), drop just that one kwarg with a `# omitted: false positives on now()` comment.
+4. In `alembic.ini`, leave `sqlalchemy.url` as the placeholder the template wrote (it's overridden in `env.py`); no change needed.
+5. The `from fplguru_core...` lines fall between imports → ruff `E402`. Add `"alembic/*" = ["E402"]` under `[tool.ruff.lint.per-file-ignores]` in root `pyproject.toml`.
 
 - [ ] **Step 3: Autogenerate the initial migration**
 
-Ensure infra is up (`docker compose -f infra/docker-compose.yml up -d`), then:
+Bring infra up and wait for health, then reset the `public` schema of the `fplguru` DB so autogenerate diffs against an empty database (a stale/persisted volume would make it emit an empty migration):
 ```bash
-uv run alembic revision --autogenerate -m "initial" --rev-id 0001
+docker compose -f infra/docker-compose.yml up -d --wait
+docker compose -f infra/docker-compose.yml exec -T postgres \
+  psql -U fplguru -d fplguru -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+python -m alembic revision --autogenerate -m "initial" --rev-id 0001
 ```
-Expected: creates `alembic/versions/0001_initial.py` with `create_table` for all 5 tables.
+Expected: creates `alembic/versions/0001_initial.py` whose `upgrade()` has `op.create_table(...)` for all 5 tables (`teams`, `gameweeks`, `players`, `fixtures`, `data_sync_log`). If `upgrade()` is empty or `pass`, the schema wasn't clean — re-run the `DROP SCHEMA` line and regenerate.
 
 - [ ] **Step 4: Apply and verify**
 
 Run:
 ```bash
-uv run alembic upgrade head
+python -m alembic upgrade head
 ```
 Expected: `Running upgrade  -> 0001, initial`. Verify:
 ```bash
@@ -511,17 +590,30 @@ docker compose -f infra/docker-compose.yml exec -T postgres psql -U fplguru -d f
 ```
 Expected: lists `teams, gameweeks, players, fixtures, data_sync_log, alembic_version`.
 
-- [ ] **Step 5: Write the shared DB test fixture**
+- [ ] **Step 5: Write the shared DB test fixtures**
 
-`conftest.py` (repo root):
+First, add one line to root `pyproject.toml` `[tool.pytest.ini_options]` so the session-scoped `db_engine` fixture and the tests share one event loop (pytest-asyncio 1.x otherwise puts function-scoped tests on a different loop → "Future attached to a different loop" with asyncpg):
+```toml
+asyncio_default_test_loop_scope = "session"
+```
+(It should now read `asyncio_mode = "auto"`, `asyncio_default_fixture_loop_scope = "session"`, `asyncio_default_test_loop_scope = "session"`, `testpaths = [...]`.)
+
+`conftest.py` (repo root). Design points:
+- The DB fixtures are **opt-in**: only a test that requests `db_session` (or `db_engine`) touches Postgres. Pure-unit tests (`test_smoke`, `test_settings`, `test_models`, Task 5's respx-only client tests) never spin up an engine and don't need Docker.
+- Tests run against a dedicated `fplguru_test` database — never the dev `fplguru` DB.
+- Autouse `_point_app_at_test_db` (cheap, no DB I/O) points app code that reads `get_settings()`/`get_sessionmaker()` (Tasks 7, 10) at `fplguru_test`. No per-test monkeypatching of `get_sessionmaker` needed.
+- `db_session` teardown disposes the app engine's pool (`db.dispose_engine()` — avoids Postgres connection exhaustion across a worker/api suite) and then `TRUNCATE`s all tables. Tests are TRUNCATE-isolated, not transaction-isolated (they `commit()` explicitly).
+- Single shared DB + truncate-after ⇒ **`pytest-xdist` (`-n`) is not supported** without per-worker DB names.
+
 ```python
-import asyncio
 import os
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from fplguru_core import db as _db
 from fplguru_core.models import Base
 
 TEST_DB_URL = os.environ.get(
@@ -529,44 +621,66 @@ TEST_DB_URL = os.environ.get(
     "postgresql+asyncpg://fplguru:fplguru@localhost:5432/fplguru_test",
 )
 
+_TRUNCATE_ALL = "TRUNCATE TABLE {} RESTART IDENTITY CASCADE".format(
+    ", ".join(f'"{t.name}"' for t in reversed(Base.metadata.sorted_tables))
+)
+
 
 @pytest_asyncio.fixture(scope="session")
-async def _engine():
-    # create the test database if missing
+async def db_engine():
+    """Session engine bound to a dedicated `fplguru_test` DB.
+
+    Opt-in: only tests that request `db_session`/`db_engine` trigger it.
+    """
     admin_url = TEST_DB_URL.rsplit("/", 1)[0] + "/postgres"
-    admin = create_async_engine(admin_url, isolation_level="AUTOCOMMIT")
     dbname = TEST_DB_URL.rsplit("/", 1)[1]
-    async with admin.connect() as conn:
-        exists = await conn.exec_driver_sql(
-            "SELECT 1 FROM pg_database WHERE datname = %s", (dbname,)
-        )
-        if not exists.first():
-            await conn.exec_driver_sql(f'CREATE DATABASE "{dbname}"')
-    await admin.dispose()
+    admin = create_async_engine(admin_url, isolation_level="AUTOCOMMIT")
+    try:
+        async with admin.connect() as conn:
+            exists = await conn.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": dbname}
+            )
+            if exists.first() is None:
+                await conn.execute(text(f'CREATE DATABASE "{dbname}"'))
+    except OSError as exc:  # asyncpg ConnectionRefusedError, etc.
+        raise RuntimeError(
+            f"Postgres not reachable at {admin_url} — start it with "
+            "`docker compose -f infra/docker-compose.yml up -d`"
+        ) from exc
+    finally:
+        await admin.dispose()
 
     engine = create_async_engine(TEST_DB_URL)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
-    yield engine
-    await engine.dispose()
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+            await conn.run_sync(Base.metadata.create_all)
+        yield engine
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def _point_app_at_test_db(monkeypatch):
+    monkeypatch.setenv("FPLGURU_DATABASE_URL", TEST_DB_URL)
+    _db.reset_state()
+    yield
+    _db.reset_state()
 
 
 @pytest_asyncio.fixture
-async def db_session(_engine):
-    maker = async_sessionmaker(_engine, expire_on_commit=False)
+async def db_session(db_engine):
+    maker = async_sessionmaker(db_engine, expire_on_commit=False)
     async with maker() as session:
         yield session
-        await session.rollback()
-
-
-@pytest_asyncio.fixture(autouse=True)
-async def _clean_tables(_engine):
-    yield
-    async with _engine.begin() as conn:
-        for table in reversed(Base.metadata.sorted_tables):
-            await conn.exec_driver_sql(f'TRUNCATE TABLE "{table.name}" RESTART IDENTITY CASCADE')
+    # teardown: release any pool the app code under test created, then wipe rows
+    await _db.dispose_engine()
+    async with db_engine.begin() as conn:
+        await conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+        await conn.execute(text(_TRUNCATE_ALL))
 ```
+
+> The `Files` list mentions `packages/core/tests/conftest.py` — not needed; the repo-root `conftest.py` is discovered by pytest for every package. Create only the root one.
 
 - [ ] **Step 6: Prove the fixture works**
 
@@ -584,13 +698,13 @@ async def test_can_insert_and_read(db_session):
     assert got.short_name == "ARS"
 ```
 
-Run: `uv run pytest packages/core/tests/test_db_fixture.py -v`
+Run: `python -m pytest packages/core/tests/test_db_fixture.py -v`
 Expected: 1 passed (test DB `fplguru_test` auto-created).
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "feat: alembic async migrations and pytest postgres fixtures"
 ```
 
@@ -605,7 +719,7 @@ git commit -m "feat: alembic async migrations and pytest postgres fixtures"
 
 - [ ] **Step 1: Add dependencies**
 
-Set `packages/fpl_client/pyproject.toml` `dependencies = ["httpx>=0.27", "tenacity>=8.3"]`, `uv sync`.
+Set `packages/fpl_client/pyproject.toml` `dependencies = ["httpx>=0.27", "tenacity>=8.3"]`, `pip install -r requirements-dev.txt`.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -664,7 +778,7 @@ async def test_raises_after_exhausting_retries():
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `uv run pytest packages/fpl_client/tests/test_client.py -v`
+Run: `python -m pytest packages/fpl_client/tests/test_client.py -v`
 Expected: FAIL — `ModuleNotFoundError: fplguru_fpl_client`.
 
 - [ ] **Step 4: Write `client.py`**
@@ -726,13 +840,13 @@ __all__ = ["FplApiError", "FplClient"]
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `uv run pytest packages/fpl_client/tests/test_client.py -v`
+Run: `python -m pytest packages/fpl_client/tests/test_client.py -v`
 Expected: 4 passed.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "feat: resilient async FPL API client with retry/backoff"
 ```
 
@@ -748,7 +862,7 @@ git commit -m "feat: resilient async FPL API client with retry/backoff"
 
 - [ ] **Step 1: Add dependency**
 
-Set `packages/ingest/pyproject.toml` `dependencies = ["fplguru-core"]`, `uv sync`.
+Set `packages/ingest/pyproject.toml` `dependencies = ["fplguru-core"]`, `pip install -r requirements-dev.txt`.
 
 - [ ] **Step 2: Create trimmed fixture files**
 
@@ -841,7 +955,7 @@ def test_normalize_fixtures_handles_null_event_and_kickoff():
 
 - [ ] **Step 4: Run test to verify it fails**
 
-Run: `uv run pytest packages/ingest/tests/test_fpl_normalizers.py -v`
+Run: `python -m pytest packages/ingest/tests/test_fpl_normalizers.py -v`
 Expected: FAIL — `ModuleNotFoundError: fplguru_ingest.fpl`.
 
 - [ ] **Step 5: Write `fpl.py`**
@@ -931,13 +1045,13 @@ def normalize_fixtures(fixtures: list[dict[str, Any]]) -> list[dict]:
 
 - [ ] **Step 6: Run test to verify it passes**
 
-Run: `uv run pytest packages/ingest/tests/test_fpl_normalizers.py -v`
+Run: `python -m pytest packages/ingest/tests/test_fpl_normalizers.py -v`
 Expected: 4 passed.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "feat: pure FPL bootstrap/fixtures normalizers with fixtures"
 ```
 
@@ -961,7 +1075,7 @@ dependencies = [
     "fplguru-ingest",
 ]
 ```
-Run `uv sync`.
+Run `pip install -r requirements-dev.txt`.
 
 - [ ] **Step 2: Write `app.py`**
 
@@ -998,7 +1112,7 @@ import respx
 from sqlalchemy import func, select
 
 from fplguru_core.models import DataSyncLog, Gameweek, Player, Team
-from fplguru_worker.tasks import _sync_bootstrap
+from fplguru_worker.tasks import _run_and_dispose, _sync_bootstrap
 
 BOOTSTRAP = json.loads(
     (Path(__file__).parents[3] / "packages/ingest/tests/fixtures/bootstrap_sample.json").read_text()
@@ -1009,8 +1123,6 @@ BASE = "https://fpl.test/api"
 @respx.mock
 async def test_sync_bootstrap_upserts_and_logs(db_session, monkeypatch):
     monkeypatch.setenv("FPLGURU_FPL_API_BASE", BASE)
-    from fplguru_core.settings import get_settings
-    get_settings.cache_clear()
     respx.get(f"{BASE}/bootstrap-static/").mock(return_value=httpx.Response(200, json=BOOTSTRAP))
 
     await _sync_bootstrap()
@@ -1025,108 +1137,172 @@ async def test_sync_bootstrap_upserts_and_logs(db_session, monkeypatch):
 @respx.mock
 async def test_sync_bootstrap_is_idempotent(db_session, monkeypatch):
     monkeypatch.setenv("FPLGURU_FPL_API_BASE", BASE)
-    from fplguru_core.settings import get_settings
-    get_settings.cache_clear()
     respx.get(f"{BASE}/bootstrap-static/").mock(return_value=httpx.Response(200, json=BOOTSTRAP))
 
     await _sync_bootstrap()
     await _sync_bootstrap()
 
+    assert (await db_session.execute(select(func.count()).select_from(Team))).scalar() == 1
+    assert (await db_session.execute(select(func.count()).select_from(Player))).scalar() == 1
+    assert (await db_session.execute(select(func.count()).select_from(DataSyncLog))).scalar() == 2
+
+
+@respx.mock
+async def test_run_and_dispose_allows_a_second_run(db_session, monkeypatch):
+    monkeypatch.setenv("FPLGURU_FPL_API_BASE", BASE)
+    respx.get(f"{BASE}/bootstrap-static/").mock(return_value=httpx.Response(200, json=BOOTSTRAP))
+
+    await _run_and_dispose(_sync_bootstrap)
+    await _run_and_dispose(_sync_bootstrap)  # dispose()+reset_state() between runs must not break run 2
+
     assert (await db_session.execute(select(func.count()).select_from(Player))).scalar() == 1
 ```
 
+(The root `conftest.py`'s autouse `_point_app_at_test_db` already clears the settings cache each test, so `monkeypatch.setenv` alone is enough — no manual `get_settings.cache_clear()`.)
+
 - [ ] **Step 4: Run test to verify it fails**
 
-Run: `uv run pytest services/worker/tests/test_sync_bootstrap.py -v`
+Run: `python -m pytest services/worker/tests/test_sync_bootstrap.py -v`
 Expected: FAIL — `ImportError: cannot import name '_sync_bootstrap'`.
 
 - [ ] **Step 5: Write `tasks.py`**
 
 ```python
 import asyncio
+import logging
 from datetime import UTC, datetime
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from fplguru_core.db import get_sessionmaker
+from fplguru_core.db import dispose_engine, get_sessionmaker, reset_state
 from fplguru_core.models import DataSyncLog, Fixture, Gameweek, Player, Team
 from fplguru_core.settings import get_settings
 from fplguru_fpl_client import FplClient
 from fplguru_ingest.fpl import (
-    normalize_fixtures, normalize_gameweeks, normalize_players, normalize_teams,
+    normalize_fixtures,
+    normalize_gameweeks,
+    normalize_players,
+    normalize_teams,
 )
 from fplguru_worker.app import celery_app
 
+logger = logging.getLogger("fplguru.worker")
 
-async def _upsert(session, model, rows: list[dict]) -> None:
+
+async def _upsert(session, model, rows: list[dict]) -> int:
     if not rows:
-        return
+        return 0
+    present = set(rows[0])
     stmt = pg_insert(model).values(rows)
     update_cols = {
         c.name: stmt.excluded[c.name]
         for c in model.__table__.columns
-        if c.name not in ("id",)
+        if c.name != "id" and c.name in present
     }
     if "updated_at" in model.__table__.columns:
         update_cols["updated_at"] = func.now()
     stmt = stmt.on_conflict_do_update(index_elements=["id"], set_=update_cols)
     await session.execute(stmt)
+    return len(rows)
 
 
-async def _record(session, source: str, status: str, started: datetime, detail: str = "") -> None:
+async def _record(
+    session, source: str, status: str, started: datetime, detail: str = ""
+) -> None:
     session.add(
         DataSyncLog(
-            source=source, status=status, detail=detail,
-            started_at=started, finished_at=datetime.now(UTC),
+            source=source,
+            status=status,
+            detail=detail,
+            started_at=started,
+            finished_at=datetime.now(UTC),
         )
     )
 
 
+async def _log_error(source: str, started: datetime, exc: Exception) -> None:
+    """Record an error row on a FRESH session so a broken connection on the
+    working session cannot also swallow the audit trail."""
+    logger.exception("%s sync failed", source)
+    try:
+        async with get_sessionmaker()() as session, session.begin():
+            await _record(session, source, "error", started, str(exc)[:500])
+    except Exception:  # noqa: BLE001
+        logger.exception("could not record %s error row", source)
+
+
 async def _sync_bootstrap() -> None:
     started = datetime.now(UTC)
-    client = FplClient(get_settings().fpl_api_base)
     try:
-        data = await client.bootstrap_static()
-    finally:
-        await client.aclose()
-    maker = get_sessionmaker()
-    async with maker() as session:
+        client = FplClient(get_settings().fpl_api_base)
         try:
-            async with session.begin():
-                await _upsert(session, Team, normalize_teams(data))
-                await _upsert(session, Gameweek, normalize_gameweeks(data))
-                await _upsert(session, Player, normalize_players(data))
-                await _record(session, "fpl_bootstrap", "ok", started)
-        except Exception as exc:  # noqa: BLE001
-            async with session.begin():
-                await _record(session, "fpl_bootstrap", "error", started, str(exc)[:500])
-            raise
+            data = await client.bootstrap_static()
+        finally:
+            await client.aclose()
+        async with get_sessionmaker()() as session, session.begin():
+            n_t = await _upsert(session, Team, normalize_teams(data))
+            n_g = await _upsert(session, Gameweek, normalize_gameweeks(data))
+            n_p = await _upsert(session, Player, normalize_players(data))
+            await _record(session, "fpl_bootstrap", "ok", started)
+        logger.info("bootstrap synced: %d teams / %d gameweeks / %d players", n_t, n_g, n_p)
+    except Exception as exc:  # noqa: BLE001
+        await _log_error("fpl_bootstrap", started, exc)
+        raise
 
 
 async def _sync_fixtures() -> None:
     started = datetime.now(UTC)
-    client = FplClient(get_settings().fpl_api_base)
     try:
-        data = await client.fixtures()
-    finally:
-        await client.aclose()
-    maker = get_sessionmaker()
-    async with maker() as session:
+        client = FplClient(get_settings().fpl_api_base)
         try:
-            async with session.begin():
-                await _upsert(session, Fixture, normalize_fixtures(data))
-                await _record(session, "fpl_fixtures", "ok", started)
-        except Exception as exc:  # noqa: BLE001
-            async with session.begin():
-                await _record(session, "fpl_fixtures", "error", started, str(exc)[:500])
-            raise
+            data = await client.fixtures()
+        finally:
+            await client.aclose()
+        async with get_sessionmaker()() as session, session.begin():
+            if not await session.scalar(select(func.count()).select_from(Team)):
+                await _record(
+                    session, "fpl_fixtures", "ok", started,
+                    "skipped: teams not populated yet",
+                )
+                logger.info("fixtures sync skipped: teams table empty")
+                return
+            n = await _upsert(session, Fixture, normalize_fixtures(data))
+            await _record(session, "fpl_fixtures", "ok", started)
+        logger.info("fixtures synced: %d rows", n)
+    except Exception as exc:  # noqa: BLE001
+        await _log_error("fpl_fixtures", started, exc)
+        raise
+
+
+async def sync_all() -> None:
+    """Bootstrap then fixtures in one event loop — the manual DB-populate entry point:
+
+        python -c "import asyncio; from fplguru_worker.tasks import sync_all; asyncio.run(sync_all())"
+
+    (Two back-to-back ``asyncio.run(_sync_bootstrap())`` / ``asyncio.run(_sync_fixtures())``
+    calls crash: the module-cached async engine's asyncpg connection is bound to the first,
+    now-closed loop.)
+    """
+    await _sync_bootstrap()
+    await _sync_fixtures()
+
+
+async def _run_and_dispose(coro_fn) -> None:
+    """Run one sync, then drop the process-cached engine so the next Celery
+    task (a fresh event loop via asyncio.run) doesn't reuse asyncpg
+    connections bound to a closed loop."""
+    try:
+        await coro_fn()
+    finally:
+        await dispose_engine()
+        reset_state()
 
 
 @celery_app.task(name="sync_bootstrap", bind=True, max_retries=3, default_retry_delay=60)
 def sync_bootstrap(self) -> None:
     try:
-        asyncio.run(_sync_bootstrap())
+        asyncio.run(_run_and_dispose(_sync_bootstrap))
     except Exception as exc:  # noqa: BLE001
         raise self.retry(exc=exc)
 
@@ -1134,34 +1310,26 @@ def sync_bootstrap(self) -> None:
 @celery_app.task(name="sync_fixtures", bind=True, max_retries=3, default_retry_delay=60)
 def sync_fixtures(self) -> None:
     try:
-        asyncio.run(_sync_fixtures())
+        asyncio.run(_run_and_dispose(_sync_fixtures))
     except Exception as exc:  # noqa: BLE001
         raise self.retry(exc=exc)
 ```
 
-> **DB-URL note for tests:** the root `conftest.py` fixtures create/populate `fplguru_test`, but `_sync_bootstrap` uses `get_sessionmaker()` which reads `FPLGURU_DATABASE_URL`. In `services/worker/tests/conftest.py` add an autouse fixture that points the app sessionmaker at the test DB:
-> ```python
-> import pytest
-> from fplguru_core import db
-> from fplguru_core.settings import get_settings
+> **DB wiring:** no per-test setup needed. The root `conftest.py`'s autouse `_point_app_at_test_db` already points `get_sessionmaker()` at `fplguru_test`, and these tests request `db_session`, so `db_engine` is live and rows are cleaned between tests. `services/worker/tests/` needs no `conftest.py`.
 >
-> @pytest.fixture(autouse=True)
-> def _use_test_db(_engine, monkeypatch):
->     monkeypatch.setattr(db, "get_sessionmaker", lambda: __import__("sqlalchemy.ext.asyncio", fromlist=["async_sessionmaker"]).async_sessionmaker(_engine, expire_on_commit=False))
->     get_settings.cache_clear()
->     yield
->     get_settings.cache_clear()
-> ```
+> **Deploy note:** run the worker under `-P prefork` (default) or `-P solo`. `asyncio.run()` per task is incompatible with `-P gevent`/`-P eventlet`, and `-P threads` shares the engine across threads. `_run_and_dispose` disposes + resets the cached engine after every run so a fresh `asyncio.run` loop never reuses stale asyncpg connections.
+>
+> **Fetch-failure logging:** `_sync_bootstrap` / `_sync_fixtures` now record an error `DataSyncLog` row (via `_log_error`, fresh session) for **any** failure including the FPL fetch — so Task 9 only needs to add the test that proves it.
 
 - [ ] **Step 6: Run test to verify it passes**
 
-Run: `uv run pytest services/worker/tests/test_sync_bootstrap.py -v`
-Expected: 2 passed.
+Run: `python -m pytest services/worker/tests/test_sync_bootstrap.py -v`
+Expected: 3 passed.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "feat: celery worker with idempotent sync_bootstrap task"
 ```
 
@@ -1178,6 +1346,7 @@ git commit -m "feat: celery worker with idempotent sync_bootstrap task"
 `services/worker/tests/test_sync_fixtures.py`:
 ```python
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -1196,12 +1365,11 @@ BASE = "https://fpl.test/api"
 @respx.mock
 async def test_sync_fixtures_persists_scheduled_and_unscheduled(db_session, monkeypatch):
     monkeypatch.setenv("FPLGURU_FPL_API_BASE", BASE)
-    from fplguru_core.settings import get_settings
-    get_settings.cache_clear()
-    # FK prerequisites
+    # FK prerequisites — deadline_time is DateTime(timezone=True); asyncpg needs a real datetime
     db_session.add_all([
         Team(id=1, name="Arsenal", short_name="ARS"),
-        Gameweek(id=1, name="Gameweek 1", deadline_time="2025-08-15T17:30:00+00:00"),
+        Gameweek(id=1, name="Gameweek 1",
+                 deadline_time=datetime(2025, 8, 15, 17, 30, tzinfo=UTC)),
     ])
     await db_session.commit()
     respx.get(f"{BASE}/fixtures/").mock(return_value=httpx.Response(200, json=FIXTURES))
@@ -1214,7 +1382,7 @@ async def test_sync_fixtures_persists_scheduled_and_unscheduled(db_session, monk
 
 - [ ] **Step 2: Run to verify it fails, then it should pass immediately**
 
-Run: `uv run pytest services/worker/tests/test_sync_fixtures.py -v`
+Run: `python -m pytest services/worker/tests/test_sync_fixtures.py -v`
 Expected: PASS (implementation landed in Task 7). If it fails on FK/normalization, fix `_sync_fixtures`/`normalize_fixtures` until green.
 
 - [ ] **Step 3: Write the Beat schedule guard test**
@@ -1231,35 +1399,37 @@ def test_beat_schedule_registers_both_sync_jobs():
     assert sched["sync-bootstrap"]["schedule"] <= 900.0
 ```
 
-Run: `uv run pytest services/worker/tests/test_beat_schedule.py -v`
+Run: `python -m pytest services/worker/tests/test_beat_schedule.py -v`
 Expected: 1 passed.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "test: sync_fixtures persistence and beat schedule wiring"
 ```
 
 ---
 
-## Task 9: Graceful-degradation error path
+## Task 9: Graceful-degradation error-path test
 
 **Files:**
 - Test: `services/worker/tests/test_sync_error_path.py`
 
-- [ ] **Step 1: Write the failing test**
+Task 7's `_sync_bootstrap`/`_sync_fixtures` already route **every** failure (including the FPL fetch) through `_log_error`, which writes an `error` `DataSyncLog` row on a fresh session and re-raises. This task adds the tests that prove it and that the sync survives the "no teams yet" cold-start path.
+
+- [ ] **Step 1: Write the test**
 
 `services/worker/tests/test_sync_error_path.py`:
 ```python
 import httpx
 import pytest
 import respx
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from fplguru_core.models import DataSyncLog
+from fplguru_core.models import DataSyncLog, Fixture
 from fplguru_fpl_client import FplApiError
-from fplguru_worker.tasks import _sync_bootstrap
+from fplguru_worker.tasks import _sync_bootstrap, _sync_fixtures
 
 BASE = "https://fpl.test/api"
 
@@ -1267,8 +1437,6 @@ BASE = "https://fpl.test/api"
 @respx.mock
 async def test_api_outage_logs_error_row_and_reraises(db_session, monkeypatch):
     monkeypatch.setenv("FPLGURU_FPL_API_BASE", BASE)
-    from fplguru_core.settings import get_settings
-    get_settings.cache_clear()
     respx.get(f"{BASE}/bootstrap-static/").mock(return_value=httpx.Response(503))
 
     with pytest.raises(FplApiError):
@@ -1277,39 +1445,31 @@ async def test_api_outage_logs_error_row_and_reraises(db_session, monkeypatch):
     log = (await db_session.execute(select(DataSyncLog))).scalar_one()
     assert (log.source, log.status) == ("fpl_bootstrap", "error")
     assert "503" in log.detail
+
+
+@respx.mock
+async def test_fixtures_sync_skips_cleanly_when_no_teams(db_session, monkeypatch):
+    monkeypatch.setenv("FPLGURU_FPL_API_BASE", BASE)
+    respx.get(f"{BASE}/fixtures/").mock(return_value=httpx.Response(200, json=[]))
+
+    await _sync_fixtures()  # teams table empty -> no FK violation, logs "ok/skipped"
+
+    assert (await db_session.execute(select(func.count()).select_from(Fixture))).scalar() == 0
+    log = (await db_session.execute(select(DataSyncLog))).scalar_one()
+    assert (log.source, log.status) == ("fpl_fixtures", "ok")
+    assert "skipped" in log.detail
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run**
 
-Run: `uv run pytest services/worker/tests/test_sync_error_path.py -v`
-Expected: FAIL — currently the FPL error is raised *before* the session opens, so no `DataSyncLog` row is written.
+Run: `python -m pytest services/worker/tests/ -v`
+Expected: all worker tests pass (8 across 4 files: 3 sync_bootstrap + 1 sync_fixtures + 1 beat + 2 error-path... adjust the count to what's actually there — the point is 0 failures).
 
-- [ ] **Step 3: Fix `_sync_bootstrap` / `_sync_fixtures` to log fetch failures**
-
-In `tasks.py`, wrap the fetch so a fetch failure also records a row. Replace the fetch block in both `_sync_bootstrap` and `_sync_fixtures` with:
-```python
-    maker = get_sessionmaker()
-    client = FplClient(get_settings().fpl_api_base)
-    try:
-        data = await client.bootstrap_static()   # or client.fixtures()
-    except Exception as exc:  # noqa: BLE001
-        async with maker() as session, session.begin():
-            await _record(session, "fpl_bootstrap", "error", started, str(exc)[:500])
-        raise
-    finally:
-        await client.aclose()
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `uv run pytest services/worker/tests/ -v`
-Expected: all worker tests pass (5 tests across 4 files).
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add -A
-git commit -m "feat: record DataSyncLog error row when FPL API is unavailable"
+git add -A -- ':!docs'
+git commit -m "test: FPL-outage error row + fixtures cold-start skip"
 ```
 
 ---
@@ -1323,7 +1483,7 @@ git commit -m "feat: record DataSyncLog error row when FPL API is unavailable"
 
 - [ ] **Step 1: Add dependencies**
 
-Set `services/api/pyproject.toml` `dependencies = ["fastapi>=0.111", "uvicorn[standard]>=0.30", "fplguru-core"]`, `uv sync`.
+Set `services/api/pyproject.toml` `dependencies = ["fastapi>=0.111,<1", "uvicorn[standard]>=0.30", "fplguru-core"]`, `pip install -r requirements-dev.txt`.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -1339,19 +1499,21 @@ from fplguru_core.models import Base  # noqa: F401
 
 
 @pytest_asyncio.fixture
-async def client(_engine):
-    maker = async_sessionmaker(_engine, expire_on_commit=False)
+async def client(db_engine):
+    maker = async_sessionmaker(db_engine, expire_on_commit=False)
 
     async def _override():
         async with maker() as session:
             yield session
 
     app.dependency_overrides[get_db] = _override
-    async with LifespanManager(app):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as c:
-            yield c
-    app.dependency_overrides.clear()
+    try:
+        async with LifespanManager(app):
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as c:
+                yield c
+    finally:
+        app.dependency_overrides.pop(get_db, None)
 ```
 
 `services/api/tests/test_api.py`:
@@ -1366,12 +1528,22 @@ async def test_health(client):
     assert r.status_code == 200 and r.json() == {"status": "ok"}
 
 
+async def test_ready(client):
+    r = await client.get("/ready")
+    assert r.status_code == 200 and r.json() == {"status": "ready"}
+
+
+async def test_empty_db_shapes(client):
+    assert (await client.get("/gameweeks")).json() == []
+    assert (await client.get("/gameweeks/current")).json() is None
+
+
 async def test_gameweeks_and_current(client, db_session):
     db_session.add_all([
-        Gameweek(id=1, name="Gameweek 1", deadline_time="2025-08-15T17:30:00+00:00",
-                 finished=True),
-        Gameweek(id=2, name="Gameweek 2", deadline_time="2025-08-22T17:30:00+00:00",
-                 is_current=True),
+        Gameweek(id=1, name="Gameweek 1",
+                 deadline_time=datetime(2025, 8, 15, 17, 30, tzinfo=UTC), finished=True),
+        Gameweek(id=2, name="Gameweek 2",
+                 deadline_time=datetime(2025, 8, 22, 17, 30, tzinfo=UTC), is_current=True),
     ])
     await db_session.commit()
 
@@ -1392,29 +1564,40 @@ async def test_status_reports_last_sync(client, db_session):
     body = r.json()
     assert body["sources"]["fpl_bootstrap"]["status"] == "ok"
     assert body["sources"]["fpl_bootstrap"]["as_of"].startswith("2025-08-20T12:00:00")
+    assert body["sources"]["fpl_fixtures"] == {"status": "unknown", "as_of": None}
 ```
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `uv run pytest services/api/tests/test_api.py -v`
+Run: `python -m pytest services/api/tests/test_api.py -v`
 Expected: FAIL — `ModuleNotFoundError: fplguru_api.main`.
 
 - [ ] **Step 4: Write `main.py`**
 
 ```python
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
-from sqlalchemy import desc, select
+from fastapi import Depends, FastAPI, HTTPException
+from sqlalchemy import desc, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fplguru_core.db import get_sessionmaker
+from fplguru_core.db import dispose_engine, get_sessionmaker
 from fplguru_core.models import DataSyncLog, Gameweek
 
-app = FastAPI(title="FPLGuru API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    yield
+    await dispose_engine()
+
+
+app = FastAPI(title="FPLGuru API", version="0.1.0", lifespan=lifespan)
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
+    """Read-only request session. Does NOT commit — a mutating route must
+    manage its own transaction (see fplguru_core.db.session_scope)."""
     async with get_sessionmaker()() as session:
         yield session
 
@@ -1434,6 +1617,15 @@ def _gw(row: Gameweek) -> dict:
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/ready")
+async def ready(db: AsyncSession = Depends(get_db)) -> dict:
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail="database unavailable") from exc
+    return {"status": "ready"}
 
 
 @app.get("/gameweeks")
@@ -1476,15 +1668,15 @@ async def status(db: AsyncSession = Depends(get_db)) -> dict:
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `uv run pytest services/api/tests/test_api.py -v`
-Expected: 4 passed.
+Run: `python -m pytest services/api/tests/test_api.py -v`
+Expected: 5 passed (`test_health`, `test_ready`, `test_empty_db_shapes`, `test_gameweeks_and_current`, `test_status_reports_last_sync`).
 
 - [ ] **Step 6: Manual smoke against real data (optional but recommended)**
 
 ```bash
-uv run alembic upgrade head
-uv run python -c "import asyncio; from fplguru_worker.tasks import _sync_bootstrap; asyncio.run(_sync_bootstrap())"
-uv run uvicorn fplguru_api.main:app --port 8000 &
+python -m alembic upgrade head
+python -c "import asyncio; from fplguru_worker.tasks import _sync_bootstrap; asyncio.run(_sync_bootstrap())"
+python -m uvicorn fplguru_api.main:app --port 8000 &
 curl -s localhost:8000/gameweeks/current
 ```
 Expected: JSON for the real current/next gameweek.
@@ -1492,7 +1684,7 @@ Expected: JSON for the real current/next gameweek.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "feat: FastAPI service with health, status, and gameweek endpoints"
 ```
 
@@ -1509,7 +1701,9 @@ git commit -m "feat: FastAPI service with health, status, and gameweek endpoints
 
 - [ ] **Step 1: Add dependency**
 
-Set `packages/ingest/pyproject.toml` `dependencies = ["fplguru-core", "pandas>=2.2"]`, `uv sync`.
+Set `packages/ingest/pyproject.toml` `dependencies = ["fplguru-core", "pandas>=2.2,<4", "numpy>=2.2,<2.5"]`, `pip install -r requirements-dev.txt`.
+
+> `numpy<2.5` is required: Smart App Control blocks `numpy` 2.5.x's `_sfc64.pyd` on this machine, which breaks `import pandas`. 2.2.x works.
 
 - [ ] **Step 2: Create a trimmed sample CSV**
 
@@ -1557,7 +1751,7 @@ def test_normalize_merged_gw_rows():
 
 - [ ] **Step 4: Run test to verify it fails**
 
-Run: `uv run pytest packages/ingest/tests/test_historical.py -v`
+Run: `python -m pytest packages/ingest/tests/test_historical.py -v`
 Expected: FAIL — `ModuleNotFoundError: fplguru_ingest.historical`.
 
 - [ ] **Step 5: Write `historical.py`**
@@ -1596,7 +1790,7 @@ def normalize_merged_gw(csv_path: str | Path, season: str) -> list[dict]:
 
 - [ ] **Step 6: Run test to verify it passes**
 
-Run: `uv run pytest packages/ingest/tests/test_historical.py -v`
+Run: `python -m pytest packages/ingest/tests/test_historical.py -v`
 Expected: 1 passed.
 
 - [ ] **Step 7: Write the downloader script**
@@ -1605,7 +1799,7 @@ Expected: 1 passed.
 ```python
 """Download vaastav/Fantasy-Premier-League merged_gw.csv for the given seasons.
 
-Usage: uv run python scripts/fetch_historical.py 2022-23 2023-24 2024-25
+Usage: python scripts/fetch_historical.py 2022-23 2023-24 2024-25
 """
 import sys
 from pathlib import Path
@@ -1632,7 +1826,7 @@ Add `data/` to `.gitignore`.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "feat: historical merged_gw normalizer and downloader for xP backtests"
 ```
 
@@ -1675,39 +1869,43 @@ jobs:
       FPLGURU_REDIS_URL: redis://localhost:6379/0
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: uv sync
-      - run: uv run ruff check .
-      - run: uv run alembic upgrade head
-      - run: uv run pytest -q
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pip install "ruff==0.6.*"
+      - run: python -m ruff check .
+      - run: python -m alembic upgrade head
+      - run: python -m alembic check   # fails if models drifted from migrations
+      - run: python -m pytest -q
 
   web:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with: { version: 9 }
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: pnpm }
+        with: { node-version: 22 }   # jsdom 30 / undici 8 need Node 22+
+      - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter web test
       - run: pnpm --filter web build
 ```
 
-- [ ] **Step 2: Verify locally what CI runs**
+CI runs `ruff` (Linux, no SAC); local dev skips it. `python -m ruff` works because the `ruff` wheel exposes a `__main__`.
+
+- [ ] **Step 2: Verify locally what CI runs (minus ruff)**
 
 Run:
 ```bash
-uv run ruff check . && uv run alembic upgrade head && uv run pytest -q
+python -m alembic upgrade head && python -m alembic check && python -m pytest -q
 ```
-Expected: ruff clean, migrations apply, all Python tests pass.
+Expected: migrations apply, `alembic check` reports no new operations, all Python tests pass. (`ruff` is CI-only — SAC blocks it locally. If you want a local lint proxy, `python -m pyflakes packages services` is pure-Python and runs fine, but it is not required to pass this task.)
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "ci: lint + migrate + pytest with postgres/redis service containers"
 ```
 
@@ -1720,19 +1918,35 @@ git commit -m "ci: lint + migrate + pytest with postgres/redis service container
 - Create: `apps/web/public/manifest.json`, `apps/web/src/app/page.tsx`, `apps/web/src/lib/api.ts`
 - Test: `apps/web/src/lib/api.test.ts`, `apps/web/vitest.config.ts`
 
-- [ ] **Step 1: Scaffold the app**
+- [ ] **Step 1: Enable pnpm, then scaffold the app**
 
-Run:
+`pnpm` isn't installed; get it via corepack (bundled with the existing Node):
+```bash
+corepack enable
+corepack prepare pnpm@9 --activate
+pnpm --version
+```
+Then scaffold:
 ```bash
 pnpm create next-app@latest apps/web --ts --tailwind --app --src-dir --no-eslint --use-pnpm --import-alias "@/*"
 ```
-Then from repo root: `pnpm install`.
+Then add a minimal repo-root `package.json` so `corepack`/`pnpm` resolve deterministically in the monorepo:
+```json
+{
+  "name": "fplguru",
+  "private": true,
+  "packageManager": "pnpm@9.15.9"
+}
+```
+Then from repo root: `pnpm install` (writes `pnpm-lock.yaml` — commit it).
+
+> **create-next-app@latest resolved Next 16.3.3 / React 19 / Tailwind v4 / Vitest 4.** Next 16's `next build` uses Turbopack (no `@next/swc` Rust addon), so **Smart App Control did NOT block the local build** — it ran clean. Keep the CI `web` job regardless. If a future create-next-app pins a version whose build *does* trip SAC, fall back to CI-only for the build and report DONE_WITH_CONCERNS; `pnpm --filter web test` (Vitest) must always pass locally.
 
 - [ ] **Step 2: Add Vitest**
 
 Run: `pnpm --filter web add -D vitest @testing-library/react @testing-library/dom jsdom`
 
-`apps/web/vitest.config.ts`:
+`apps/web/vitest.config.mts` (use `.mts`, not `.ts` — the config is ESM and Vitest 4's native loader warns otherwise):
 ```ts
 import { defineConfig } from "vitest/config";
 
@@ -1835,7 +2049,7 @@ Expected: test passes; `next build` succeeds.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "feat: next.js PWA shell reading /status with manifest"
 ```
 
@@ -1854,28 +2068,35 @@ git commit -m "feat: next.js PWA shell reading /status with manifest"
 FPL tracking + predictive analytics platform. See `docs/plans/` for the build plan.
 
 ## Prerequisites
-- Python 3.12, [uv](https://docs.astral.sh/uv/), Node 20, pnpm 9, Docker
+- Python 3.12 from python.org — reachable as `py -3.12` (bare `python` may hit the Windows Store stub; that's fine)
+- Node 20+ (pnpm comes via `corepack enable`)
+- Docker Desktop (running)
 
 ## First run
 ```bash
 cp .env.example .env
 docker compose -f infra/docker-compose.yml up -d
-uv sync
-uv run alembic upgrade head
+
+py -3.12 -m venv .venv
+# activate: source .venv/Scripts/activate  (Git Bash) | .venv\Scripts\Activate.ps1 (PowerShell)
+python -m pip install --upgrade pip
+python -m pip install -r requirements-dev.txt
+
+python -m alembic upgrade head
 # populate DB from the live FPL API
-uv run python -c "import asyncio; from fplguru_worker.tasks import _sync_bootstrap, _sync_fixtures; asyncio.run(_sync_bootstrap()); asyncio.run(_sync_fixtures())"
+python -c "import asyncio; from fplguru_worker.tasks import sync_all; asyncio.run(sync_all())"
 ```
 
-## Run services
+## Run services (venv active)
 ```bash
-uv run uvicorn fplguru_api.main:app --reload --port 8000
-uv run celery -A fplguru_worker.app.celery_app worker -B --loglevel=info
+python -m uvicorn fplguru_api.main:app --reload --port 8000
+python -m celery -A fplguru_worker.app.celery_app worker -B --loglevel=info
 pnpm --filter web dev
 ```
 
 ## Test
 ```bash
-uv run ruff check . && uv run pytest -q
+python -m pytest -q          # lint (ruff) runs in CI only — Smart App Control blocks it locally
 pnpm --filter web test
 ```
 ````
@@ -1884,20 +2105,20 @@ pnpm --filter web test
 
 Verify each and check the box:
 - [ ] `docker compose -f infra/docker-compose.yml up -d` → postgres + redis `Up`
-- [ ] `uv sync` → all 6 workspace members resolve
-- [ ] `uv run alembic upgrade head` → 5 tables + `alembic_version` created
-- [ ] `uv run ruff check .` → clean
-- [ ] `uv run pytest -q` → all tests pass (core, fpl_client, ingest, worker, api)
+- [ ] `.venv` active; `python -m pip install -r requirements-dev.txt` → all 6 local packages install editable, no errors
+- [ ] `python -m alembic upgrade head` → 5 tables + `alembic_version` created
+- [ ] `python -m pytest -q` → all tests pass (core, fpl_client, ingest, worker, api)
+- [ ] CI `python` job green on the PR → includes `python -m ruff check .`
 - [ ] Bootstrap populate command → `players`, `teams`, `gameweeks` rows > 0
 - [ ] `curl localhost:8000/gameweeks/current` → real current/next GW JSON
 - [ ] `curl localhost:8000/status` → `fpl_bootstrap` + `fpl_fixtures` with recent `as_of`
-- [ ] `celery ... worker -B` runs; after ~15 min a new `data_sync_log` row appears with `status='ok'`
+- [ ] `python -m celery ... worker -B` runs; after ~15 min a new `data_sync_log` row appears with `status='ok'`
 - [ ] `pnpm --filter web dev` → homepage shows "FPL data as of <timestamp>"
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add -A
+git add -A -- ':!docs'
 git commit -m "docs: README and Foundation acceptance checklist"
 ```
 
@@ -1920,6 +2141,14 @@ git commit -m "docs: README and Foundation acceptance checklist"
 - `DataSyncLog` fields (`source`, `status`, `detail`, `started_at`, `finished_at`) consistent across Tasks 3, 7, 9, 10 ✓
 - Normalizer output keys in Task 6 (`gameweek_id`, `home_team_id`, `home_difficulty`, …) match `Fixture` columns in Task 3 and the assertions in Task 8 ✓
 - `fetchStatus` / `SyncStatus` shape in Task 13 matches `/status` response in Task 10 (`sources.<name>.status`, `.as_of`) ✓
+
+**4. Toolchain (revised from `uv` to `venv`+`pip` after Smart App Control blocked `uv` on the dev machine):**
+- No `uv`/`uvx`/`uv run` remain in the plan; every tool is `python -m <tool>` ✓
+- Root `pyproject.toml` carries config only; deps live in each package's `pyproject.toml` + `requirements-dev.txt` (editable installs) ✓
+- `ruff` removed from local flow, runs in CI only (Linux) ✓
+- `pnpm` obtained via `corepack enable` (Task 13) rather than a standalone install ✓
+- CI uses `actions/setup-python` + `pip`, not `astral-sh/setup-uv` ✓
+- Known residual risk flagged inline: native addons (`@next/swc`, possibly `asyncpg` wheels) may also be SAC-blocked locally → fall back to CI for those pieces, never disable SAC.
 
 ---
 

@@ -26,7 +26,7 @@ The PRD offered choices; this section resolves each one so sub-plans don't re-li
 | Payments | **Stripe Billing** — one product, $3.99/mo price, 7-day trial. Annual price is a flag (§8, open question). | PRD's stated choice. |
 | Push channels | **web-push (VAPID)** for PWA (Phase 1); **python-telegram-bot** (Phase 2); **WhatsApp via 360dialog BSP** (Phase 3) | Matches phased delivery; WhatsApp needs Meta verification lead time (§10.2). |
 | Hosting | **Vercel** (web) + **Fly.io** (api, worker, Postgres, Redis) | PRD-suggested shape; Fly gives us managed Postgres/Redis + container jobs in one place. |
-| Package management | **uv** workspace for Python (`packages/*`, `services/*`); **pnpm** workspace for `apps/web` | Fast, lockfile-based, monorepo-aware. |
+| Package management | **`venv` + `pip`** with editable installs of `packages/*` and `services/*` (one root `requirements-dev.txt`); **pnpm** workspace (via `corepack`) for `apps/web` | Originally `uv`, but the dev machine has **Smart App Control ON**, which blocks `uv`'s (and other unsigned) binaries. Tools are invoked as `python -m <tool>`; `ruff` runs in CI only. Revisit `uv` if the environment changes. |
 | Local dev infra | **Docker Compose** (Postgres + Redis only); api/worker/web run on host | Fast iteration; no need to containerize app code for local work. |
 | CI | **GitHub Actions** — lint + typecheck + tests on every PR, against a service-container Postgres/Redis | — |
 | Error/analytics/infra obs | **Sentry** + **PostHog** + Fly metrics/Grafana | PRD §6.1. |
@@ -70,7 +70,8 @@ fplguru/
   docs/
     plans/                   # this file + per-sub-plan detailed plans
   .github/workflows/ci.yml
-  pyproject.toml             # uv workspace root; members: services/*, packages/*
+  pyproject.toml             # root config only (pytest, ruff); no project deps
+  requirements-dev.txt       # editable installs of packages/* + services/* + test deps
   pnpm-workspace.yaml        # apps/*
   README.md
 ```
@@ -91,7 +92,7 @@ Each sub-plan produces **working, testable software on its own** and has its own
 
 | # | Sub-plan | Delivers (acceptance) | Depends on | PRD refs |
 |---|---|---|---|---|
-| **F** | **Foundation** (repo/infra + FPL data pipeline) — *detailed today* | `docker compose up` + `uv run` boots api & worker; CI green; Postgres populated with teams/players/fixtures/gameweeks from the live FPL API; refresh job runs on a schedule; API serves `/health` and `/gameweeks`. | — | §6.1, §6.2, §6.3, §5.6, §7 (degradation) |
+| **F** | **Foundation** (repo/infra + FPL data pipeline) — *detailed today* | `docker compose up` + venv boots api & worker; CI green; Postgres populated with teams/players/fixtures/gameweeks from the live FPL API; refresh job runs on a schedule; API serves `/health` and `/gameweeks`. | — | §6.1, §6.2, §6.3, §5.6, §7 (degradation) |
 | **P1a** | Team Linking & Dashboard Shell | Enter manager ID → see your squad, chips, entry history, mini-league IDs. NextAuth login (email + Google). Dashboard nav shell. | F | §4.1, §4.8 |
 | **P1b** | Live Scores & GW Live tool | During matches, per-player live points + BPS-based bonus projection update in the dashboard within 10s (SSE). GW Live tool page. | F | §4.10 (GW Live), §7 |
 | **P1c** | Basic xP Engine v1 | `player_gw_predictions` populated by the Basic model (ridge/shallow GBM per position, FPL-only features) for horizons 1–5; per-GW breakdown + cumulative; backtest report (MAE/RMSE per position vs historical actuals) checked into `docs/`. | F + historical CSV ingester (in F) | §5.1, §5.2 (Basic), §5.4, §5.5, §5.7 |

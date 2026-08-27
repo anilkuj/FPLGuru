@@ -1,0 +1,20 @@
+{
+  "teams": [
+    {"id": 1, "name": "Arsenal", "short_name": "ARS",
+     "strength_overall_home": 1300, "strength_overall_away": 1310,
+     "strength_attack_home": 1350, "strength_attack_away": 1340,
+     "strength_defence_home": 1250, "strength_defence_away": 1260}
+  ],
+  "events": [
+    {"id": 1, "name": "Gameweek 1", "deadline_time": "2025-08-15T17:30:00Z",
+     "is_current": false, "is_next": true, "finished": false, "average_entry_score": null},
+    {"id": 2, "name": "Gameweek 2", "deadline_time": "2025-08-22T17:30:00Z",
+     "is_current": false, "is_next": false, "finished": false, "average_entry_score": null}
+  ],
+  "elements": [
+    {"id": 11, "team": 1, "element_type": 3, "first_name": "Bukayo", "second_name": "Saka",
+     "web_name": "Saka", "now_cost": 100, "status": "a",
+     "chance_of_playing_next_round": 100, "news": "",
+     "selected_by_percent": "42.1", "total_points": 0}
+  ]
+}
