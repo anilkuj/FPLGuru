@@ -1,8 +1,8 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
-from sqlalchemy import desc, select
+from fastapi import Depends, FastAPI, HTTPException
+from sqlalchemy import desc, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fplguru_core.db import dispose_engine, get_sessionmaker
@@ -19,6 +19,8 @@ app = FastAPI(title="FPLGuru API", version="0.1.0", lifespan=lifespan)
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
+    """Read-only request session. Does NOT commit — a mutating route must
+    manage its own transaction (see fplguru_core.db.session_scope)."""
     async with get_sessionmaker()() as session:
         yield session
 
@@ -38,6 +40,15 @@ def _gw(row: Gameweek) -> dict:
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/ready")
+async def ready(db: AsyncSession = Depends(get_db)) -> dict:
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail="database unavailable") from exc
+    return {"status": "ready"}
 
 
 @app.get("/gameweeks")

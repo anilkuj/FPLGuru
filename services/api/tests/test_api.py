@@ -8,6 +8,16 @@ async def test_health(client):
     assert r.status_code == 200 and r.json() == {"status": "ok"}
 
 
+async def test_ready(client):
+    r = await client.get("/ready")
+    assert r.status_code == 200 and r.json() == {"status": "ready"}
+
+
+async def test_empty_db_shapes(client):
+    assert (await client.get("/gameweeks")).json() == []
+    assert (await client.get("/gameweeks/current")).json() is None
+
+
 async def test_gameweeks_and_current(client, db_session):
     db_session.add_all([
         Gameweek(id=1, name="Gameweek 1",
@@ -34,3 +44,4 @@ async def test_status_reports_last_sync(client, db_session):
     body = r.json()
     assert body["sources"]["fpl_bootstrap"]["status"] == "ok"
     assert body["sources"]["fpl_bootstrap"]["as_of"].startswith("2025-08-20T12:00:00")
+    assert body["sources"]["fpl_fixtures"] == {"status": "unknown", "as_of": None}
