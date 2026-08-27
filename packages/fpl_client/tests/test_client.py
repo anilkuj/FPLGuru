@@ -100,3 +100,17 @@ async def test_event_live_returns_elements():
     async with FplClient(BASE) as client:
         data = await client.event_live(7)
     assert data["elements"][0]["id"] == 11
+
+
+@respx.mock
+async def test_entry_and_history_and_picks():
+    respx.get(f"{BASE}/entry/7/").mock(
+        return_value=httpx.Response(200, json={"id": 7, "name": "T"}))
+    respx.get(f"{BASE}/entry/7/history/").mock(
+        return_value=httpx.Response(200, json={"current": []}))
+    respx.get(f"{BASE}/entry/7/event/3/picks/").mock(
+        return_value=httpx.Response(200, json={"picks": [], "active_chip": None}))
+    async with FplClient(BASE) as c:
+        assert (await c.entry(7))["id"] == 7
+        assert "current" in await c.entry_history(7)
+        assert "picks" in await c.entry_picks(7, 3)
