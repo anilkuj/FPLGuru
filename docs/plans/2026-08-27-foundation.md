@@ -197,6 +197,8 @@ git commit -m "chore: scaffold pip/pnpm monorepo (venv + editable installs)"
 - [ ] **Step 1: Write `infra/docker-compose.yml`**
 
 ```yaml
+name: fplguru
+
 services:
   postgres:
     image: postgres:16
@@ -206,6 +208,11 @@ services:
       POSTGRES_DB: fplguru
     ports: ["5432:5432"]
     volumes: ["fplguru_pg:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fplguru -d fplguru"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
   redis:
     image: redis:7
     ports: ["6379:6379"]
@@ -213,9 +220,11 @@ volumes:
   fplguru_pg:
 ```
 
+The `postgres` healthcheck lets Task 4 use `up -d --wait` so `alembic` doesn't race the server's startup. `name: fplguru` keeps container/volume names stable regardless of the compose file's directory.
+
 - [ ] **Step 2: Add dependency**
 
-In `packages/core/pyproject.toml` set `dependencies = ["pydantic-settings>=2.3", "pydantic>=2.7"]`, then run `pip install -r requirements-dev.txt`.
+In `packages/core/pyproject.toml` set `dependencies = ["pydantic-settings>=2.3,<3", "pydantic>=2.7,<3"]` (upper bounds so a future pydantic 3 can't silently shift the whole stack), then run `pip install -r requirements-dev.txt`.
 
 - [ ] **Step 3: Write the failing test**
 
@@ -224,7 +233,12 @@ In `packages/core/pyproject.toml` set `dependencies = ["pydantic-settings>=2.3",
 from fplguru_core.settings import Settings
 
 
-def test_defaults_point_at_local_infra():
+def test_defaults_point_at_local_infra(monkeypatch):
+    for key in (
+        "FPLGURU_DATABASE_URL", "FPLGURU_REDIS_URL",
+        "FPLGURU_FPL_API_BASE", "FPLGURU_ENVIRONMENT",
+    ):
+        monkeypatch.delenv(key, raising=False)
     s = Settings(_env_file=None)
     assert s.database_url.startswith("postgresql+asyncpg://")
     assert s.redis_url.startswith("redis://")
@@ -270,11 +284,12 @@ def get_settings() -> Settings:
 Run: `python -m pytest packages/core/tests/test_settings.py -v`
 Expected: 2 passed.
 
-- [ ] **Step 7: Write `.env.example`**
+- [ ] **Step 7: Write `.env.example`** (already created in Task 1 — ensure it has all four keys)
 
 ```dotenv
 FPLGURU_DATABASE_URL=postgresql+asyncpg://fplguru:fplguru@localhost:5432/fplguru
 FPLGURU_REDIS_URL=redis://localhost:6379/0
+FPLGURU_FPL_API_BASE=https://fantasy.premierleague.com/api
 FPLGURU_ENVIRONMENT=local
 ```
 
@@ -282,14 +297,16 @@ FPLGURU_ENVIRONMENT=local
 
 Run:
 ```bash
-docker compose -f infra/docker-compose.yml up -d
+docker compose -f infra/docker-compose.yml up -d --wait
 ```
-Expected: `postgres` and `redis` containers running (`docker compose -f infra/docker-compose.yml ps` shows both `Up`).
+Expected: exits 0 once healthy; `docker compose -f infra/docker-compose.yml ps` shows `postgres` as `Up (healthy)` and `redis` as `Up`.
 
 ```bash
 git add -A
 git commit -m "feat: local docker-compose infra and core settings"
 ```
+
+> Run `python -m pytest` from the **repo root** — `Settings.model_config` resolves `env_file=".env"` relative to CWD, so a stray `.env` elsewhere (or none) changes results.
 
 ---
 
@@ -307,14 +324,14 @@ git commit -m "feat: local docker-compose infra and core settings"
 Set `packages/core/pyproject.toml` `dependencies` to:
 ```toml
 dependencies = [
-    "pydantic>=2.7",
-    "pydantic-settings>=2.3",
-    "sqlalchemy[asyncio]>=2.0.30",
-    "asyncpg>=0.29",
+    "pydantic>=2.7,<3",
+    "pydantic-settings>=2.3,<3",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
     "greenlet>=3.0",
 ]
 ```
-Run `pip install -r requirements-dev.txt`.
+Run `pip install -r requirements-dev.txt`. (`sqlalchemy>=2.0.36` / `asyncpg>=0.30` are the first releases with wheels/support current on Python 3.12–3.13; keep them recent.)
 
 - [ ] **Step 2: Write `constants.py`**
 
@@ -324,6 +341,8 @@ POSITION_BY_ELEMENT_TYPE: dict[int, str] = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD
 ```
 
 - [ ] **Step 3: Write `db.py`**
+
+`get_engine` / `get_sessionmaker` are cached so production doesn't rebuild the pool per request. Because they read `get_settings()` (itself cached) at first call, a test that changes the DB URL must reset **all three** caches — so `db.py` exposes one `reset_state()` that does exactly that. Task 4's root `conftest.py` calls it via an autouse fixture; no test should hand-roll `get_settings.cache_clear()`.
 
 ```python
 from collections.abc import AsyncIterator
@@ -347,6 +366,13 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
 async def session_scope() -> AsyncIterator[AsyncSession]:
     async with get_sessionmaker()() as session:
         yield session
+
+
+def reset_state() -> None:
+    """Clear cached settings/engine/sessionmaker. For tests only."""
+    get_sessionmaker.cache_clear()
+    get_engine.cache_clear()
+    get_settings.cache_clear()
 ```
 
 - [ ] **Step 4: Write the failing test**
