@@ -62,9 +62,18 @@ python -m uvicorn fplguru_api.main:app --reload --port 8000
 # worker + scheduler (must be prefork or solo — not gevent/eventlet)
 python -m celery -A fplguru_worker.app.celery_app worker -B --loglevel=info
 
-# web  →  http://localhost:3000
+# web  →  http://localhost:3000  (enter your FPL team ID on the home page)
 pnpm --filter web dev
 ```
+
+## Link a team
+
+```bash
+curl -XPOST localhost:8000/link/<FPL_TEAM_ID>     # your ID is in the FPL "Points" page URL
+curl -s  localhost:8000/entries/<FPL_TEAM_ID>     # squad + per-player xP
+curl -s  localhost:8000/entries/<FPL_TEAM_ID>/history
+```
+The worker's `sync_linked_teams` task re-syncs every linked team hourly.
 
 ## Test
 
