@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     fpl_api_base: str = "https://fantasy.premierleague.com/api"
     environment: str = "local"
+    xp_artifact_dir: str = "packages/ml/artifacts/basic"
 
 
 @lru_cache

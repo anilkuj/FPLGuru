@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     DateTime,
@@ -9,6 +10,7 @@ from sqlalchemy import (
     Integer,
     MetaData,
     String,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -101,3 +103,61 @@ class DataSyncLog(Base):
     detail: Mapped[str] = mapped_column(String, default="", server_default="")
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PlayerGwStat(_TimestampMixin, Base):
+    """Actual per-player-per-gameweek scoring, from event/{gw}/live."""
+    __tablename__ = "player_gw_stats"
+    __table_args__ = (
+        UniqueConstraint("player_id", "gameweek_id",
+                         name="uq_player_gw_stats_player_id_gameweek_id"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
+    gameweek_id: Mapped[int] = mapped_column(ForeignKey("gameweeks.id"), index=True)
+    minutes: Mapped[int] = mapped_column(Integer, default=0)
+    total_points: Mapped[int] = mapped_column(Integer, default=0)
+    goals: Mapped[int] = mapped_column(Integer, default=0)
+    assists: Mapped[int] = mapped_column(Integer, default=0)
+    clean_sheets: Mapped[int] = mapped_column(Integer, default=0)
+    goals_conceded: Mapped[int] = mapped_column(Integer, default=0)
+    bonus: Mapped[int] = mapped_column(Integer, default=0)
+    was_home: Mapped[bool] = mapped_column(Boolean, default=False)
+    opponent_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
+    value: Mapped[int] = mapped_column(Integer, default=0)  # price at that GW, tenths
+
+
+class PlayerGwFeature(_TimestampMixin, Base):
+    """Versioned feature vector for a player-GW (JSON blob keyed by FEATURE_NAMES)."""
+    __tablename__ = "player_gw_features"
+    __table_args__ = (
+        UniqueConstraint("player_id", "gameweek_id", "feature_set_version",
+                         name="uq_player_gw_features_player_id_gameweek_id_feature_set_version"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
+    gameweek_id: Mapped[int] = mapped_column(ForeignKey("gameweeks.id"), index=True)
+    feature_set_version: Mapped[str] = mapped_column(String(16))
+    features: Mapped[dict] = mapped_column(JSON)
+
+
+class PlayerGwPrediction(_TimestampMixin, Base):
+    """xP for a player in a future GW under a model version."""
+    __tablename__ = "player_gw_predictions"
+    __table_args__ = (
+        UniqueConstraint("player_id", "gameweek_id", "model_version",
+                         name="uq_player_gw_predictions_player_id_gameweek_id_model_version"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
+    gameweek_id: Mapped[int] = mapped_column(ForeignKey("gameweeks.id"), index=True)
+    horizon_gw: Mapped[int] = mapped_column(Integer)  # 1 = next GW ... 5
+    model_version: Mapped[str] = mapped_column(String(32))
+    xp: Mapped[float] = mapped_column(Float)
+    x_minutes: Mapped[float] = mapped_column(Float, default=0.0)
+    x_goals: Mapped[float] = mapped_column(Float, default=0.0)
+    x_assists: Mapped[float] = mapped_column(Float, default=0.0)
+    x_cs_or_gc: Mapped[float] = mapped_column(Float, default=0.0)
+    x_bonus: Mapped[float] = mapped_column(Float, default=0.0)
+    xp_floor: Mapped[float] = mapped_column(Float, default=0.0)
+    xp_ceiling: Mapped[float] = mapped_column(Float, default=0.0)

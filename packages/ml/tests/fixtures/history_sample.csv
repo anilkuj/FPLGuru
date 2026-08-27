@@ -1,0 +1,8 @@
+season,player_name,position,team,gameweek,minutes,goals,assists,clean_sheet,total_points,was_home,opponent_team_id,value
+24-25,Saka,MID,ARS,1,90,1,0,False,8,True,10,100
+24-25,Saka,MID,ARS,2,90,0,1,False,6,False,11,100
+24-25,Saka,MID,ARS,3,80,0,0,False,2,True,12,101
+24-25,Saka,MID,ARS,4,90,2,0,False,13,False,13,102
+24-25,Foe,DEF,LIV,1,90,0,0,True,6,True,1,45
+24-25,Foe,DEF,LIV,2,90,0,0,False,2,False,1,45
+24-25,Foe,DEF,LIV,3,90,0,1,True,9,True,1,45

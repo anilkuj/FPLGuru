@@ -70,3 +70,6 @@ class FplClient:
         if not isinstance(data, list):
             raise FplApiError("fixtures did not return an array")
         return data
+
+    async def event_live(self, gameweek: int) -> dict:
+        return await self._get(f"event/{gameweek}/live/")

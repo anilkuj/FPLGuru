@@ -4,6 +4,7 @@ from fplguru_core.models import Base, Fixture, Player
 def test_expected_tables_registered():
     assert set(Base.metadata.tables) == {
         "teams", "gameweeks", "players", "fixtures", "data_sync_log",
+        "player_gw_stats", "player_gw_features", "player_gw_predictions",
     }
 
 

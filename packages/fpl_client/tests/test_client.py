@@ -90,3 +90,13 @@ async def test_injected_client_is_not_closed_by_aclose():
         assert await client.fixtures() == []
         await client.aclose()
         assert not shared.is_closed
+
+
+@respx.mock
+async def test_event_live_returns_elements():
+    respx.get(f"{BASE}/event/7/live/").mock(
+        return_value=httpx.Response(200, json={"elements": [{"id": 11, "stats": {"minutes": 90}}]})
+    )
+    async with FplClient(BASE) as client:
+        data = await client.event_live(7)
+    assert data["elements"][0]["id"] == 11

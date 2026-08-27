@@ -6,16 +6,25 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from fplguru_core.db import dispose_engine, get_sessionmaker, reset_state
-from fplguru_core.models import DataSyncLog, Fixture, Gameweek, Player, Team
+from fplguru_core.models import (
+    DataSyncLog,
+    Fixture,
+    Gameweek,
+    Player,
+    PlayerGwStat,
+    Team,
+)
 from fplguru_core.settings import get_settings
 from fplguru_fpl_client import FplClient
 from fplguru_ingest.fpl import (
+    normalize_event_live,
     normalize_fixtures,
     normalize_gameweeks,
     normalize_players,
     normalize_teams,
 )
 from fplguru_worker.app import celery_app
+from fplguru_worker.xp import compute_and_store_xp
 
 logger = logging.getLogger("fplguru.worker")
 
@@ -142,5 +151,88 @@ def sync_bootstrap(self) -> None:
 def sync_fixtures(self) -> None:
     try:
         asyncio.run(_run_and_dispose(_sync_fixtures))
+    except Exception as exc:
+        raise self.retry(exc=exc) from exc
+
+
+async def _upsert_stats(session, rows: list[dict]) -> None:
+    if not rows:
+        return
+    stmt = pg_insert(PlayerGwStat).values(rows)
+    update_cols = {
+        c: stmt.excluded[c] for c in rows[0] if c not in ("player_id", "gameweek_id")
+    }
+    update_cols["updated_at"] = func.now()
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["player_id", "gameweek_id"], set_=update_cols
+    )
+    await session.execute(stmt)
+
+
+async def _sync_gw_stats() -> None:
+    started = datetime.now(UTC)
+    try:
+        async with get_sessionmaker()() as session, session.begin():
+            finished_gw_ids = (
+                await session.execute(
+                    select(Gameweek.id).where(Gameweek.finished.is_(True)).order_by(Gameweek.id)
+                )
+            ).scalars().all()
+            players = {
+                p.id: p for p in (await session.execute(select(Player))).scalars().all()
+            }
+            fixtures = (
+                await session.execute(
+                    select(Fixture).where(Fixture.gameweek_id.in_(finished_gw_ids))
+                )
+            ).scalars().all()
+            side: dict[tuple[int, int], tuple[bool, int]] = {}
+            for f in fixtures:
+                side[(f.gameweek_id, f.home_team_id)] = (True, f.away_team_id)
+                side[(f.gameweek_id, f.away_team_id)] = (False, f.home_team_id)
+
+        if not finished_gw_ids:
+            async with get_sessionmaker()() as session, session.begin():
+                await _record(session, "fpl_gw_stats", "ok", started, "no finished gameweeks")
+            return
+
+        client = FplClient(get_settings().fpl_api_base)
+        rows: list[dict] = []
+        try:
+            for gw_id in finished_gw_ids:
+                payload = await client.event_live(gw_id)
+                for r in normalize_event_live(gw_id, payload):
+                    p = players.get(r["player_id"])
+                    if p is None:
+                        continue
+                    was_home, opp = side.get((gw_id, p.team_id), (False, None))
+                    r["was_home"] = was_home
+                    r["opponent_team_id"] = opp
+                    r["value"] = p.now_cost
+                    rows.append(r)
+        finally:
+            await client.aclose()
+
+        async with get_sessionmaker()() as session, session.begin():
+            await _upsert_stats(session, rows)
+            await _record(session, "fpl_gw_stats", "ok", started, f"{len(rows)} rows")
+        logger.info("gw stats synced: %d rows over %d gameweeks", len(rows), len(finished_gw_ids))
+    except Exception as exc:
+        await _log_error("fpl_gw_stats", started, exc)
+        raise
+
+
+@celery_app.task(name="sync_gw_stats", bind=True, max_retries=3, default_retry_delay=60)
+def sync_gw_stats(self) -> None:
+    try:
+        asyncio.run(_run_and_dispose(_sync_gw_stats))
+    except Exception as exc:
+        raise self.retry(exc=exc) from exc
+
+
+@celery_app.task(name="compute_xp", bind=True, max_retries=3, default_retry_delay=120)
+def compute_xp(self) -> None:
+    try:
+        asyncio.run(_run_and_dispose(lambda: compute_and_store_xp(horizon=5)))
     except Exception as exc:
         raise self.retry(exc=exc) from exc

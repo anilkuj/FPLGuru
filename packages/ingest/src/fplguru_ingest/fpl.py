@@ -78,3 +78,23 @@ def normalize_fixtures(fixtures: list[dict[str, Any]]) -> list[dict]:
         }
         for f in fixtures
     ]
+
+
+def normalize_event_live(gameweek_id: int, payload: dict[str, Any]) -> list[dict]:
+    out = []
+    for el in payload["elements"]:
+        s = el["stats"]
+        out.append(
+            {
+                "player_id": el["id"],
+                "gameweek_id": gameweek_id,
+                "minutes": s["minutes"],
+                "total_points": s["total_points"],
+                "goals": s["goals_scored"],
+                "assists": s["assists"],
+                "clean_sheets": s["clean_sheets"],
+                "goals_conceded": s["goals_conceded"],
+                "bonus": s["bonus"],
+            }
+        )
+    return out
