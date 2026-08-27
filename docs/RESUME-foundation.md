@@ -56,12 +56,15 @@ Plan: [`docs/plans/2026-08-27-p1c-basic-xp-engine.md`](plans/2026-08-27-p1c-basi
 | 5 | `frame.py` — leak-free historical training frame | ✅ `18c8bf9` |
 | 7 | `ridge.py` — closed-form ridge, JSON persistence (no sklearn) | ✅ `a553e0e` |
 | 10 | `rollout.py` — multi-GW horizon + widening band | ✅ `161da84` |
-| 8 | `model_basic.py` — `BasicXP` per-position bundle | 🔧 in progress |
-| 9 | `backtest.py` — walk-forward MAE/RMSE vs baseline | ⬜ |
-| 11 | `scripts/train_xp.py` + `scripts/backtest_xp.py` | ⬜ |
-| 12 | `compute_xp` worker task | ⬜ |
-| 13 | `GET /xp` + `GET /players/{id}/xp` | ⬜ |
-| 14 | beat wiring, README, master-plan status | ⬜ |
+| 8 | `model_basic.py` — `BasicXP` per-position bundle + `baseline()` cold start | ✅ `bc06725` / `b4bfd22` |
+| 9 | `backtest.py` — walk-forward MAE/RMSE vs baseline | ✅ `ac60904` |
+| 11 | `scripts/train_xp.py` + `scripts/backtest_xp.py` | ✅ `def9424` |
+| — | real `basic-v1` artifacts + backtest report (all positions beat baseline) | ✅ `622371e` / `e69a1a0` |
+| 12 | `compute_xp` worker task (+ cold-start fallback 12b) | ✅ `1f02014` / `601b0af` / `b4bfd22` |
+| 13 | `GET /xp` + `GET /players/{id}/xp`; `/status` enumerates all sources | ✅ `daa0fd8` |
+| 14 | beat wiring, README, master-plan status | 🔧 finishing |
+
+**Live end-to-end verified:** `sync_gw_stats` → 610 `player_gw_stats`; `compute_xp` → 2,465 `player_gw_predictions`; `GET /xp?horizon=5` → 493 players ranked (top: Raya GK ~11 xP); `/status` → all 4 sources `ok`. Next: final whole-branch review → PR `feature/basic-xp` → `main`.
 
 **P1c notes:** hand-rolled ridge (no scikit-learn — dodges SAC native-binary block); Basic model is FPL-data-only + leak-safe features (rolling form, minutes, home/away, price, opp-conceded-to-position); component breakdown (`x_*` cols) left 0.0 for Basic, filled in Advanced (P2b). Test seeding must be **FK-parent-first** (models have no `relationship()` → single `add_all` flushes in alphabetical class order). Real training/backtest needs `python scripts/fetch_historical.py 2022-23 2023-24 2024-25` first (gitignored `data/historical/`). New `DataSyncLog.source` values `fpl_gw_stats` / `xp_compute` — Task 14 must extend `/status`'s hardcoded source tuple (or make it enumerate `distinct(source)`).
 
