@@ -1620,6 +1620,14 @@ git commit -m "docs: P1c complete — Basic xP engine"
 
 ---
 
+## Deferred follow-ups (from the final branch review — non-blocking)
+
+- **Artifact-load failure is invisible to `/status`.** `BasicXP.load` on a missing/empty `packages/ml/artifacts/basic/` raises a bare `FileNotFoundError` before `compute_and_store_xp` opens its `try` — so a bad artifacts dir surfaces only as Celery retry exhaustion, no `DataSyncLog(source="xp_compute", status="error")` row. Wrap the load + write an error row.
+- **`Settings.xp_artifact_dir` is a relative path** → resolution depends on the worker process CWD. Fine when Celery is launched from the repo root (as documented); anchor to a package-relative absolute path for robustness.
+- **`_sync_gw_stats` empty-path round trip** — the `if not finished_gw_ids: return` check happens after a `session.begin()` block; move it earlier. Cosmetic.
+- **Blank-GW `PlayerGwStat` rows** — players whose team had no fixture in a finished GW get a 0-minute row with `opponent_team_id NULL`. Inert (`compute_xp` filters `minutes > 0`) but slightly misleading persisted data; skip inserting them.
+- **`compute_and_store_xp` reads all `PlayerGwStat` unbounded** — ~23k rows on an hourly job at current scale, acceptable; add a `WHERE gameweek_id >= (max - 8)` window if it grows.
+
 ## Execution Handoff
 
 Plan saved to `docs/plans/2026-08-27-p1c-basic-xp-engine.md`. Branch: `feature/basic-xp` (off `main`).
