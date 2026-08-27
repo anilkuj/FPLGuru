@@ -197,22 +197,21 @@ _SYNTHETIC_FIXTURE = -1
 
 
 def project_bonus(bps_by_player: dict[int, int]) -> dict[int, int]:
-    """Provisional FPL bonus. The three highest *distinct* positive BPS values
-    map to 3 / 2 / 1; every player on a given value gets that award (so a tie
-    for a place consumes the place(s) below it)."""
+    """Provisional FPL bonus, by *rank position* (standard competition ranking).
+    Rank 0 (highest BPS) -> 3, rank 1 -> 2, rank 2 -> 1, below that -> 0. Tied
+    players share a rank, so a tie for a place consumes the place(s) below it
+    (e.g. BPS 30, 30, 25 -> 3, 3, 1). Only positive BPS is eligible."""
     if not bps_by_player:
         return {}
-    tiers = sorted({b for b in bps_by_player.values() if b > 0}, reverse=True)[:3]
+    positives = [b for b in bps_by_player.values() if b > 0]
+    by_rank = {0: 3, 1: 2, 2: 1}
     award: dict[int, int] = {}
     for pid, b in bps_by_player.items():
-        if b > 0 and len(tiers) >= 1 and b == tiers[0]:
-            award[pid] = 3
-        elif b > 0 and len(tiers) >= 2 and b == tiers[1]:
-            award[pid] = 2
-        elif b > 0 and len(tiers) >= 3 and b == tiers[2]:
-            award[pid] = 1
-        else:
+        if b <= 0:
             award[pid] = 0
+            continue
+        rank = sum(1 for v in positives if v > b)
+        award[pid] = by_rank.get(rank, 0)
     return award
 
 
