@@ -1,0 +1,1 @@
+{"version": "basic-v1", "global_mean": 1.83394063866437, "feature_names": ["form_points_3", "form_points_5", "form_minutes_3", "starts_rate_5", "form_goals_5", "form_assists_5", "was_home", "value", "opp_conceded_to_pos_5"], "positions": ["DEF", "FWD", "GK", "MID"]}
