@@ -28,7 +28,7 @@ infra/                 docker-compose (Postgres 16 + Redis 7)
 
 - **Python 3.12** from python.org — invoked as `py -3.12` (a bare `python` may resolve to the
   Windows Store stub until the venv is active; that's expected)
-- **Node 20+** — `pnpm` comes via `corepack`
+- **Node 22+** — `pnpm` comes via `corepack`
 - **Docker Desktop**, running
 
 > On this dev machine **Smart App Control is ON**, so the toolchain avoids unsigned native

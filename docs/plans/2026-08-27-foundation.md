@@ -1885,7 +1885,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20 }
+        with: { node-version: 22 }   # jsdom 30 / undici 8 need Node 22+
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter web test
