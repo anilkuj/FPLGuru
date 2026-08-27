@@ -2,7 +2,7 @@
 name = "fplguru-ingest"
 version = "0.0.0"
 requires-python = ">=3.12"
-dependencies = ["fplguru-core", "pandas>=2.2"]
+dependencies = ["fplguru-core", "pandas>=2.2,<4", "numpy>=2.2,<2.5"]
 
 [build-system]
 requires = ["hatchling"]
