@@ -467,6 +467,8 @@ git commit -m "feat(worker): sync_gw_stats — per-GW actuals from event/{gw}/li
 
 ---
 
+> **Execution order:** do **Task 6 before Task 5** — `frame.py` imports `FEATURE_NAMES` / `wmean` from `features.py`. (Task 6's Step 3 "refactor `frame.py`" then becomes a no-op / is folded into Task 5.)
+
 ## Task 5: Historical training frame
 
 **Files:**
