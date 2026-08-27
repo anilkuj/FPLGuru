@@ -32,7 +32,7 @@ The master roadmap for everything *after* Foundation is [`docs/plans/2026-08-27-
 | 10 | FastAPI service (`/health` `/ready` `/gameweeks` `/gameweeks/current` `/status`) | ✅ | `990549b`, `b78e1ae` |
 | 11 | Historical `merged_gw` normalizer + `scripts/fetch_historical.py` | ✅ | `79dd0cc` (+ numpy pin follow-up) |
 | 12 | CI pipeline (`.github/workflows/ci.yml`) | ✅ | `55e951e` |
-| 13 | Next.js PWA shell (`apps/web/`, Next 16.3.3 / React 19 / Tailwind v4 / Vitest 4) | ✅ | `74e...` (see `git log`) |
+| 13 | Next.js PWA shell (`apps/web/`, Next 16.3.3 / React 19 / Tailwind v4 / Vitest 4) | ✅ | `e00346b` |
 | **14** | **`README.md` + acceptance checklist** | ⬜ next | — |
 | — | Final whole-branch review, then merge `feature/foundation` → `main` | ⬜ | — |
 
