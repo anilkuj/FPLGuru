@@ -2,6 +2,7 @@
 -e ./packages/fpl_client
 -e ./packages/ingest
 -e ./packages/ml
+-e ./packages/entrysync
 -e ./services/api
 -e ./services/worker
 

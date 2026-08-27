@@ -10,6 +10,7 @@ from fplguru_core.models import (
     DataSyncLog,
     Fixture,
     Gameweek,
+    LinkedTeam,
     Player,
     PlayerGwStat,
     Team,
@@ -24,6 +25,7 @@ from fplguru_ingest.fpl import (
     normalize_teams,
 )
 from fplguru_worker.app import celery_app
+from fplguru_worker.entries import sync_entry
 from fplguru_worker.xp import compute_and_store_xp
 
 logger = logging.getLogger("fplguru.worker")
@@ -234,5 +236,28 @@ def sync_gw_stats(self) -> None:
 def compute_xp(self) -> None:
     try:
         asyncio.run(_run_and_dispose(lambda: compute_and_store_xp(horizon=5)))
+    except Exception as exc:
+        raise self.retry(exc=exc) from exc
+
+
+@celery_app.task(name="sync_entry", bind=True, max_retries=3, default_retry_delay=60)
+def sync_entry_task(self, entry_id: int) -> None:
+    try:
+        asyncio.run(_run_and_dispose(lambda: sync_entry(entry_id)))
+    except Exception as exc:
+        raise self.retry(exc=exc) from exc
+
+
+async def _sync_linked_teams() -> None:
+    async with get_sessionmaker()() as session:
+        ids = (await session.execute(select(LinkedTeam.fpl_entry_id))).scalars().all()
+    for eid in ids:
+        await sync_entry(eid)
+
+
+@celery_app.task(name="sync_linked_teams", bind=True, max_retries=2, default_retry_delay=120)
+def sync_linked_teams(self) -> None:
+    try:
+        asyncio.run(_run_and_dispose(_sync_linked_teams))
     except Exception as exc:
         raise self.retry(exc=exc) from exc
