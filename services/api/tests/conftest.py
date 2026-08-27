@@ -4,7 +4,6 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from fplguru_api.main import app, get_db
-from fplguru_core.models import Base  # noqa: F401
 
 
 @pytest_asyncio.fixture

@@ -2,7 +2,10 @@ import json
 from pathlib import Path
 
 from fplguru_ingest.fpl import (
-    normalize_fixtures, normalize_gameweeks, normalize_players, normalize_teams,
+    normalize_fixtures,
+    normalize_gameweeks,
+    normalize_players,
+    normalize_teams,
 )
 
 FIX = Path(__file__).parent / "fixtures"

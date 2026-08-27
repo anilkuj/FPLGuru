@@ -58,7 +58,7 @@ async def _log_error(source: str, started: datetime, exc: Exception) -> None:
     try:
         async with get_sessionmaker()() as session, session.begin():
             await _record(session, source, "error", started, str(exc)[:500])
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception("could not record %s error row", source)
 
 
@@ -76,7 +76,7 @@ async def _sync_bootstrap() -> None:
             n_p = await _upsert(session, Player, normalize_players(data))
             await _record(session, "fpl_bootstrap", "ok", started)
         logger.info("bootstrap synced: %d teams / %d gameweeks / %d players", n_t, n_g, n_p)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         await _log_error("fpl_bootstrap", started, exc)
         raise
 
@@ -100,7 +100,7 @@ async def _sync_fixtures() -> None:
             n = await _upsert(session, Fixture, normalize_fixtures(data))
             await _record(session, "fpl_fixtures", "ok", started)
         logger.info("fixtures synced: %d rows", n)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         await _log_error("fpl_fixtures", started, exc)
         raise
 
@@ -109,7 +109,11 @@ async def sync_all() -> None:
     """Bootstrap then fixtures in one event loop — the entry point for
     manual DB population:
 
-        python -c "import asyncio; from fplguru_worker.tasks import sync_all; asyncio.run(sync_all())"
+        python - <<'PY'
+        import asyncio
+        from fplguru_worker.tasks import sync_all
+        asyncio.run(sync_all())
+        PY
     """
     await _sync_bootstrap()
     await _sync_fixtures()
@@ -130,13 +134,13 @@ async def _run_and_dispose(coro_fn) -> None:
 def sync_bootstrap(self) -> None:
     try:
         asyncio.run(_run_and_dispose(_sync_bootstrap))
-    except Exception as exc:  # noqa: BLE001
-        raise self.retry(exc=exc)
+    except Exception as exc:
+        raise self.retry(exc=exc) from exc
 
 
 @celery_app.task(name="sync_fixtures", bind=True, max_retries=3, default_retry_delay=60)
 def sync_fixtures(self) -> None:
     try:
         asyncio.run(_run_and_dispose(_sync_fixtures))
-    except Exception as exc:  # noqa: BLE001
-        raise self.retry(exc=exc)
+    except Exception as exc:
+        raise self.retry(exc=exc) from exc

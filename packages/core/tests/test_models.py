@@ -1,4 +1,4 @@
-from fplguru_core.models import Base, DataSyncLog, Fixture, Gameweek, Player, Team
+from fplguru_core.models import Base, Fixture, Player
 
 
 def test_expected_tables_registered():

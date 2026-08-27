@@ -1,7 +1,15 @@
 from datetime import datetime
 
 from sqlalchemy import (
-    BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, MetaData, String, func,
+    BigInteger,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    MetaData,
+    String,
+    func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -39,7 +47,8 @@ class Team(_TimestampMixin, Base):
 
 class Gameweek(_TimestampMixin, Base):
     __tablename__ = "gameweeks"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # event id 1..38
+    # event id 1..38
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
     name: Mapped[str] = mapped_column(String(32))
     deadline_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     is_current: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -50,7 +59,8 @@ class Gameweek(_TimestampMixin, Base):
 
 class Player(_TimestampMixin, Base):
     __tablename__ = "players"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # FPL element id
+    # FPL element id
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
     team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"))
     first_name: Mapped[str] = mapped_column(String(64))
     second_name: Mapped[str] = mapped_column(String(64))
@@ -66,7 +76,8 @@ class Player(_TimestampMixin, Base):
 
 class Fixture(_TimestampMixin, Base):
     __tablename__ = "fixtures"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # FPL fixture id
+    # FPL fixture id
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
     gameweek_id: Mapped[int | None] = mapped_column(
         ForeignKey("gameweeks.id"), nullable=True
     )  # null = not yet scheduled to a GW

@@ -46,7 +46,7 @@ async def health() -> dict:
 async def ready(db: AsyncSession = Depends(get_db)) -> dict:
     try:
         await db.execute(text("SELECT 1"))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise HTTPException(status_code=503, detail="database unavailable") from exc
     return {"status": "ready"}
 

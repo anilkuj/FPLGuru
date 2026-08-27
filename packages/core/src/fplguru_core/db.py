@@ -40,8 +40,9 @@ async def dispose_engine() -> None:
 
 
 def reset_state() -> None:
-    """Clear cached settings/engine/sessionmaker. For tests only.
+    """Clear cached settings/engine/sessionmaker.
 
+    Used by tests and by the worker's per-task engine reset.
     Does not dispose the dropped engine's pool; acceptable for tests.
     """
     get_sessionmaker.cache_clear()
