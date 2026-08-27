@@ -54,3 +54,27 @@ export function getEntry(base: string, id: number) {
 export function getEntryHistory(base: string, id: number) {
   return fetch(`${base}/entries/${id}/history`, { cache: "no-store" }).then(asJson<EntryHistoryRow[]>);
 }
+
+export type FdrFixture = {
+  gameweek_id: number;
+  opponent_short: string;
+  is_home: boolean;
+  fdr: number;
+  att_fdr: number;
+  def_fdr: number;
+  band: number;
+  opponent_form: { gf_pg: number; ga_pg: number } | null;
+};
+export type FdrTeam = {
+  team_id: number;
+  short_name: string;
+  avg_fdr: number | null;
+  fixtures: FdrFixture[];
+};
+export type FdrGridData = { start_gw: number; horizon: number; teams: FdrTeam[] };
+
+export function getFdr(base: string, horizon: number, startGw?: number) {
+  const q = new URLSearchParams({ horizon: String(horizon) });
+  if (startGw) q.set("start_gw", String(startGw));
+  return fetch(`${base}/fdr?${q}`, { cache: "no-store" }).then(asJson<FdrGridData>);
+}

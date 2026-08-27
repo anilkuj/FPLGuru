@@ -29,7 +29,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <a href="/" className="font-semibold">FPLGuru</a>
           <a href="/squad">Squad</a>
           <span className="text-gray-400">xP</span>
-          <span className="text-gray-400">FDR</span>
+          <a href="/fdr">FDR</a>
           <span className="text-gray-400">Live</span>
         </nav>
         {children}
