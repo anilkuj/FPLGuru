@@ -161,3 +161,49 @@ class PlayerGwPrediction(_TimestampMixin, Base):
     x_bonus: Mapped[float] = mapped_column(Float, default=0.0)
     xp_floor: Mapped[float] = mapped_column(Float, default=0.0)
     xp_ceiling: Mapped[float] = mapped_column(Float, default=0.0)
+
+
+class LinkedTeam(_TimestampMixin, Base):
+    __tablename__ = "linked_teams"
+    __table_args__ = (UniqueConstraint("fpl_entry_id", name="uq_linked_teams_fpl_entry_id"),)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    fpl_entry_id: Mapped[int] = mapped_column(Integer, index=True)
+    manager_name: Mapped[str] = mapped_column(String(128), default="")
+    started_event: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    favourite_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class EntryGwHistory(_TimestampMixin, Base):
+    __tablename__ = "entry_gw_history"
+    __table_args__ = (
+        UniqueConstraint("linked_team_id", "gameweek_id",
+                         name="uq_entry_gw_history_linked_team_id_gameweek_id"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    linked_team_id: Mapped[int] = mapped_column(ForeignKey("linked_teams.id"), index=True)
+    gameweek_id: Mapped[int] = mapped_column(ForeignKey("gameweeks.id"), index=True)
+    points: Mapped[int] = mapped_column(Integer, default=0)
+    total_points: Mapped[int] = mapped_column(Integer, default=0)
+    overall_rank: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    bank: Mapped[int] = mapped_column(Integer, default=0)          # tenths of a million
+    team_value: Mapped[int] = mapped_column(Integer, default=0)    # tenths of a million
+    transfers: Mapped[int] = mapped_column(Integer, default=0)
+    transfer_cost: Mapped[int] = mapped_column(Integer, default=0)
+    points_on_bench: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class EntryPick(_TimestampMixin, Base):
+    __tablename__ = "entry_picks"
+    __table_args__ = (
+        UniqueConstraint("linked_team_id", "gameweek_id", "player_id",
+                         name="uq_entry_picks_linked_team_id_gameweek_id_player_id"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    linked_team_id: Mapped[int] = mapped_column(ForeignKey("linked_teams.id"), index=True)
+    gameweek_id: Mapped[int] = mapped_column(ForeignKey("gameweeks.id"), index=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
+    slot: Mapped[int] = mapped_column(Integer)              # 1..15 (FPL "position" field)
+    multiplier: Mapped[int] = mapped_column(Integer, default=1)
+    is_captain: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_vice: Mapped[bool] = mapped_column(Boolean, default=False)
