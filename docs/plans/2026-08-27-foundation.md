@@ -346,15 +346,21 @@ POSITION_BY_ELEMENT_TYPE: dict[int, str] = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD
 
 ```python
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from functools import lru_cache
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from fplguru_core.settings import get_settings
 
 
 @lru_cache
-def get_engine():
+def get_engine() -> AsyncEngine:
     return create_async_engine(get_settings().database_url, pool_pre_ping=True)
 
 
@@ -363,13 +369,28 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(get_engine(), expire_on_commit=False)
 
 
+@asynccontextmanager
 async def session_scope() -> AsyncIterator[AsyncSession]:
+    """Imperative session helper for scripts / one-off tasks.
+
+    Does NOT commit — call ``await session.commit()`` yourself. On exit the
+    session is closed (rolled back if not committed).
+    """
     async with get_sessionmaker()() as session:
         yield session
 
 
+async def dispose_engine() -> None:
+    """Dispose the cached engine's pool. Call from FastAPI lifespan shutdown."""
+    if get_engine.cache_info().currsize:
+        await get_engine().dispose()
+
+
 def reset_state() -> None:
-    """Clear cached settings/engine/sessionmaker. For tests only."""
+    """Clear cached settings/engine/sessionmaker. For tests only.
+
+    Does not dispose the dropped engine's pool; acceptable for tests.
+    """
     get_sessionmaker.cache_clear()
     get_engine.cache_clear()
     get_settings.cache_clear()
@@ -408,13 +429,22 @@ Expected: FAIL — `ModuleNotFoundError: fplguru_core.models`.
 from datetime import datetime
 
 from sqlalchemy import (
-    BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, func,
+    BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, MetaData, String, func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
-    pass
+    # Deterministic constraint names so migrations aren't tied to Postgres defaults.
+    metadata = MetaData(
+        naming_convention={
+            "ix": "ix_%(column_0_label)s",
+            "uq": "uq_%(table_name)s_%(column_0_name)s",
+            "ck": "ck_%(table_name)s_%(constraint_name)s",
+            "fk": "fk_%(table_name)s_%(column_0_name)s_%(referent_table_name)s",
+            "pk": "pk_%(table_name)s",
+        }
+    )
 
 
 class _TimestampMixin:
@@ -425,7 +455,7 @@ class _TimestampMixin:
 
 class Team(_TimestampMixin, Base):
     __tablename__ = "teams"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)  # FPL team id
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # FPL team id
     name: Mapped[str] = mapped_column(String(64))
     short_name: Mapped[str] = mapped_column(String(8))
     strength_overall_home: Mapped[int] = mapped_column(Integer, default=0)
@@ -438,7 +468,7 @@ class Team(_TimestampMixin, Base):
 
 class Gameweek(_TimestampMixin, Base):
     __tablename__ = "gameweeks"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)  # event id 1..38
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # event id 1..38
     name: Mapped[str] = mapped_column(String(32))
     deadline_time: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     is_current: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -449,7 +479,7 @@ class Gameweek(_TimestampMixin, Base):
 
 class Player(_TimestampMixin, Base):
     __tablename__ = "players"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)  # FPL element id
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # FPL element id
     team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"))
     first_name: Mapped[str] = mapped_column(String(64))
     second_name: Mapped[str] = mapped_column(String(64))
@@ -458,14 +488,14 @@ class Player(_TimestampMixin, Base):
     now_cost: Mapped[int] = mapped_column(Integer)  # tenths of a million
     status: Mapped[str] = mapped_column(String(1))  # a/d/i/s/u/n
     chance_of_playing_next_round: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    news: Mapped[str] = mapped_column(String, default="")
+    news: Mapped[str] = mapped_column(String, default="", server_default="")
     selected_by_percent: Mapped[float] = mapped_column(Float, default=0.0)
     total_points: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class Fixture(_TimestampMixin, Base):
     __tablename__ = "fixtures"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)  # FPL fixture id
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # FPL fixture id
     gameweek_id: Mapped[int | None] = mapped_column(
         ForeignKey("gameweeks.id"), nullable=True
     )  # null = not yet scheduled to a GW
@@ -486,7 +516,7 @@ class DataSyncLog(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     source: Mapped[str] = mapped_column(String(32), index=True)  # fpl_bootstrap | fpl_fixtures
     status: Mapped[str] = mapped_column(String(16))  # ok | error
-    detail: Mapped[str] = mapped_column(String, default="")
+    detail: Mapped[str] = mapped_column(String, default="", server_default="")
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 ```
@@ -1463,15 +1493,23 @@ Expected: FAIL — `ModuleNotFoundError: fplguru_api.main`.
 
 ```python
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fplguru_core.db import get_sessionmaker
+from fplguru_core.db import dispose_engine, get_sessionmaker
 from fplguru_core.models import DataSyncLog, Gameweek
 
-app = FastAPI(title="FPLGuru API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    yield
+    await dispose_engine()
+
+
+app = FastAPI(title="FPLGuru API", version="0.1.0", lifespan=lifespan)
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
