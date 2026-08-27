@@ -4,6 +4,7 @@
 -e ./packages/ml
 -e ./packages/entrysync
 -e ./packages/fdr
+-e ./packages/live
 -e ./services/api
 -e ./services/worker
 
