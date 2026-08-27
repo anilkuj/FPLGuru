@@ -1917,15 +1917,23 @@ Then scaffold:
 ```bash
 pnpm create next-app@latest apps/web --ts --tailwind --app --src-dir --no-eslint --use-pnpm --import-alias "@/*"
 ```
-Then from repo root: `pnpm install`.
+Then add a minimal repo-root `package.json` so `corepack`/`pnpm` resolve deterministically in the monorepo:
+```json
+{
+  "name": "fplguru",
+  "private": true,
+  "packageManager": "pnpm@9.15.9"
+}
+```
+Then from repo root: `pnpm install` (writes `pnpm-lock.yaml` — commit it).
 
-> **SAC caveat:** `next build` loads the native `@next/swc-win32-x64-msvc` addon. If Smart App Control blocks it (error mentions "Application Control policy"), skip the local `next build` in Step 7 — the `web` CI job builds on Linux where it works. `pnpm --filter web test` (Vitest, pure JS) is unaffected and must still pass locally. Report this as DONE_WITH_CONCERNS if it happens.
+> **create-next-app@latest resolved Next 16.3.3 / React 19 / Tailwind v4 / Vitest 4.** Next 16's `next build` uses Turbopack (no `@next/swc` Rust addon), so **Smart App Control did NOT block the local build** — it ran clean. Keep the CI `web` job regardless. If a future create-next-app pins a version whose build *does* trip SAC, fall back to CI-only for the build and report DONE_WITH_CONCERNS; `pnpm --filter web test` (Vitest) must always pass locally.
 
 - [ ] **Step 2: Add Vitest**
 
 Run: `pnpm --filter web add -D vitest @testing-library/react @testing-library/dom jsdom`
 
-`apps/web/vitest.config.ts`:
+`apps/web/vitest.config.mts` (use `.mts`, not `.ts` — the config is ESM and Vitest 4's native loader warns otherwise):
 ```ts
 import { defineConfig } from "vitest/config";
 

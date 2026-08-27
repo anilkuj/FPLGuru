@@ -31,9 +31,9 @@ The master roadmap for everything *after* Foundation is [`docs/plans/2026-08-27-
 | 9 | Graceful-degradation error-path tests (now test-only) | ✅ | `0723ce1` |
 | 10 | FastAPI service (`/health` `/ready` `/gameweeks` `/gameweeks/current` `/status`) | ✅ | `990549b`, `b78e1ae` |
 | 11 | Historical `merged_gw` normalizer + `scripts/fetch_historical.py` | ✅ | `79dd0cc` (+ numpy pin follow-up) |
-| **12** | **CI pipeline (`.github/workflows/ci.yml`)** | ⬜ next | — |
-| 13 | Next.js PWA shell (`apps/web/`) | ⬜ | — |
-| 14 | `README.md` + acceptance checklist | ⬜ | — |
+| 12 | CI pipeline (`.github/workflows/ci.yml`) | ✅ | `55e951e` |
+| 13 | Next.js PWA shell (`apps/web/`, Next 16.3.3 / React 19 / Tailwind v4 / Vitest 4) | ✅ | `74e...` (see `git log`) |
+| **14** | **`README.md` + acceptance checklist** | ⬜ next | — |
 | — | Final whole-branch review, then merge `feature/foundation` → `main` | ⬜ | — |
 
 **Test state:** `python -m pytest -q` (repo root) → **~33 passed, 0 warnings** (exact count grows per task). Requires Docker Postgres up.
@@ -54,7 +54,7 @@ The dev machine has **Smart App Control (SAC) ON**. SAC blocks unsigned/unknown 
 | `pnpm` | Not installed. Get it in Task 13 via `corepack enable` (Node 25 is present). |
 | Docker | Docker Desktop installed & running. Compose project name is **`fplguru`** (`docker compose -f infra/docker-compose.yml ...`), containers `fplguru-postgres-1` / `fplguru-redis-1`. |
 | `numpy` | **SAC blocks `numpy` 2.5.x** (`numpy/random/_sfc64.pyd` → "Application Control policy has blocked this file"), which breaks `import pandas`. Pinned `numpy>=2.2,<2.5` in `packages/ingest/pyproject.toml`. 2.2.6 works. |
-| `@next/swc` (Task 13) | May also be SAC-blocked. If `next build` fails with "Application Control policy", ship the web build as **CI-only** and report DONE_WITH_CONCERNS — `pnpm --filter web test` (Vitest) still runs locally. Do NOT disable SAC. |
+| `@next/swc` (Task 13) | Turned out fine — Next 16's `next build` uses Turbopack (no `@next/swc` Rust addon) and ran clean locally. If a future create-next-app version pins a build that *does* trip SAC, ship the web build CI-only. Never disable SAC. |
 | General SAC pattern | Any new dependency that ships a native `.pyd`/`.dll`/`.node` may be blocked *per-file* by reputation. Symptom: `ImportError: ... An Application Control policy has blocked this file`. Fix: pin to an older version of that package whose binary SAC trusts. Never disable SAC. |
 
 ### To get a working environment from a fresh clone / new session
@@ -104,12 +104,6 @@ python -m pytest -q                  # expect all green
 ---
 
 ## Remaining work
-
-### Task 12 — CI pipeline
-`.github/workflows/ci.yml` (already written verbatim in the plan). Two jobs: `python` (Postgres+Redis service containers, `pip install -r requirements-dev.txt`, `pip install "ruff==0.6.*"`, `ruff check .`, `alembic upgrade head`, `alembic check`, `pytest -q`) and `web` (`corepack enable`, `pnpm install --frozen-lockfile`, `pnpm --filter web test`, `pnpm --filter web build`). The `web` job will fail until Task 13 creates `apps/web` + a `pnpm-lock.yaml` — acceptable to land `web` job now and let it go green after Task 13, OR add `web` in Task 13's commit. Coordinator's call.
-
-### Task 13 — Next.js PWA shell
-`corepack enable && corepack prepare pnpm@9 --activate`, then `pnpm create next-app@latest apps/web --ts --tailwind --app --src-dir --no-eslint --use-pnpm --import-alias "@/*"`. Add Vitest, `src/lib/api.ts` (`fetchStatus`), `src/app/page.tsx` (reads `/status`), `public/manifest.json`, layout metadata. **SAC risk on `@next/swc`** — see Environment table.
 
 ### Task 14 — README + acceptance checklist
 `README.md` (drafted in the plan; keep the `py -3.12` / venv / `python -m` conventions). Then walk the acceptance checklist against a real run.
