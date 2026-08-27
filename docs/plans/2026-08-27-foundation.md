@@ -4,9 +4,11 @@
 
 **Goal:** Stand up the FPLGuru monorepo and a resilient pipeline that keeps a Postgres database continuously in sync with the official FPL API (teams, players, fixtures, gameweeks), with sync-status tracking for graceful degradation, plus a minimal FastAPI service and Next.js PWA shell that read from it.
 
-**Architecture:** uv workspace of Python packages (`core`, `fpl_client`, `ingest`, `ml`) and services (`api`, `worker`); pnpm workspace for `apps/web`. Ingest logic is pure (fetch → normalized rows) and DB-free so it's unit-testable against recorded fixtures; a Celery worker persists rows via Postgres `ON CONFLICT` upserts on a Beat schedule; FastAPI serves read-only endpoints; every sync writes a `data_sync_log` row so the UI can show "data as of X" and fall back to last-known state when the FPL API is down.
+**Architecture:** A single root virtualenv with editable (`pip install -e`) installs of the Python packages (`core`, `fpl_client`, `ingest`, `ml`) and services (`api`, `worker`); pnpm workspace (via `corepack`) for `apps/web`. Ingest logic is pure (fetch → normalized rows) and DB-free so it's unit-testable against recorded fixtures; a Celery worker persists rows via Postgres `ON CONFLICT` upserts on a Beat schedule; FastAPI serves read-only endpoints; every sync writes a `data_sync_log` row so the UI can show "data as of X" and fall back to last-known state when the FPL API is down.
 
-**Tech Stack:** Python 3.12, FastAPI, SQLAlchemy 2.0 async + asyncpg, Alembic, Celery + Redis, httpx + tenacity, pytest + pytest-asyncio + respx, Next.js 15 + TypeScript + Tailwind + Vitest, Docker Compose (Postgres 16, Redis 7), GitHub Actions, uv, pnpm, ruff.
+**Tech Stack:** Python 3.12 (python.org build), `venv` + `pip`, FastAPI, SQLAlchemy 2.0 async + asyncpg, Alembic, Celery + Redis, httpx + tenacity, pytest + pytest-asyncio + respx, Next.js 15 + TypeScript + Tailwind + Vitest, Docker Compose (Postgres 16, Redis 7), GitHub Actions, pnpm (via corepack), ruff (CI-only).
+
+> **Toolchain note — Smart App Control (SAC) is ON on the dev machine.** SAC blocks unsigned/unknown native binaries, so `uv` and standalone tool `.exe`s (`pytest.exe`, `ruff.exe`, …) are unusable locally. This plan therefore uses **`venv` + `pip`** and always invokes tools as **`python -m <tool>`** (`python -m pytest`, `python -m alembic`, `python -m uvicorn`, `python -m celery`). `ruff` runs **in CI only** (Linux runners, no SAC). If a native addon (`next`/`@next/swc`, `asyncpg` wheels) is ever SAC-blocked locally, run that piece in CI and note it — do not disable SAC.
 
 **Reference:** Derived from `PRD.md` §6.1–6.3, §5.6, §7. Parent: [`2026-08-27-fplguru-master-build-plan.md`](2026-08-27-fplguru-master-build-plan.md).
 
@@ -18,7 +20,8 @@
 
 | Path | Responsibility |
 |---|---|
-| `pyproject.toml` | uv workspace root; ruff config; dev deps (pytest, respx, ruff) |
+| `pyproject.toml` | root config only: `[tool.pytest.ini_options]` + `[tool.ruff]` (no project deps) |
+| `requirements-dev.txt` | editable installs of all 6 local packages + test deps (pytest, pytest-asyncio, respx, httpx, asgi-lifespan, alembic) |
 | `pnpm-workspace.yaml` | pnpm workspace declaring `apps/*` |
 | `.env.example`, `.gitignore`, `README.md` | env template, ignores, run instructions |
 | `infra/docker-compose.yml` | local Postgres 16 + Redis 7 |
@@ -37,23 +40,27 @@
 
 ---
 
-## Task 1: Repo & workspace scaffold
+## Task 1: Repo & package scaffold
 
 **Files:**
-- Create: `pyproject.toml`, `pnpm-workspace.yaml`, `.gitignore`, `.env.example`
+- Create: `pyproject.toml`, `requirements-dev.txt`, `pnpm-workspace.yaml`, `.env.example`
+- Modify: `.gitignore` (already present from repo setup)
 - Create: `packages/{core,fpl_client,ingest,ml}/src/<pkg>/__init__.py` + each `pyproject.toml`
 - Create: `services/{api,worker}/src/<pkg>/__init__.py` + each `pyproject.toml`
 
-- [ ] **Step 1: Initialize git**
+> **Preconditions (already done during repo setup, verify only):** repo is a git repo, current branch is `feature/foundation`, `origin` = `https://github.com/anilkuj/FPLGuru.git`, `.gitignore` exists and contains `.venv/`, `.env`, `data/`, `node_modules/`. Python 3.12 from python.org is on `PATH` (`python --version` → `Python 3.12.x`).
+
+- [ ] **Step 1: Verify preconditions**
 
 Run:
 ```bash
-cd D:/AntiGravity/FPLGuru && git init && git branch -m main
+git branch --show-current && python --version && cat .gitignore
 ```
-Expected: `Initialized empty Git repository`.
+Expected: `feature/foundation`, `Python 3.12.x`, `.gitignore` listing `.venv/` `.env` `data/` etc. If Python is missing or not 3.12, STOP and report BLOCKED.
 
-- [ ] **Step 2: Write `.gitignore`**
+- [ ] **Step 2: Ensure `.gitignore` covers Python venv + build**
 
+`.gitignore` must contain (append any missing lines):
 ```gitignore
 __pycache__/
 *.pyc
@@ -66,36 +73,12 @@ apps/web/.next/
 dist/
 *.egg-info/
 .coverage
+data/
 ```
 
-- [ ] **Step 3: Write workspace root `pyproject.toml`**
+- [ ] **Step 3: Write root `pyproject.toml` (config only — no deps, no uv)**
 
 ```toml
-[project]
-name = "fplguru"
-version = "0.0.0"
-requires-python = ">=3.12"
-dependencies = []
-
-[dependency-groups]
-dev = [
-    "pytest>=8.2",
-    "pytest-asyncio>=0.23",
-    "respx>=0.21",
-    "httpx>=0.27",
-    "ruff>=0.6",
-    "asgi-lifespan>=2.1",
-]
-
-[tool.uv.workspace]
-members = ["services/*", "packages/*"]
-
-[tool.uv.sources]
-fplguru-core = { workspace = true }
-fplguru-fpl-client = { workspace = true }
-fplguru-ingest = { workspace = true }
-fplguru-ml = { workspace = true }
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["packages", "services"]
@@ -108,16 +91,36 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B"]
 ```
 
-- [ ] **Step 4: Write `pnpm-workspace.yaml`**
+- [ ] **Step 4: Write `requirements-dev.txt` (leaf-first editable installs + test deps)**
+
+```text
+-e ./packages/core
+-e ./packages/fpl_client
+-e ./packages/ingest
+-e ./packages/ml
+-e ./services/api
+-e ./services/worker
+
+pytest>=8.2
+pytest-asyncio>=0.23
+respx>=0.21
+httpx>=0.27
+asgi-lifespan>=2.1
+alembic>=1.13
+```
+
+Order matters: `core` is installed before the packages that depend on it, so pip resolves the `fplguru-core` requirement to the local editable project rather than PyPI. `ruff` is intentionally absent — it runs in CI only (see the Toolchain note at the top).
+
+- [ ] **Step 5: Write `pnpm-workspace.yaml`**
 
 ```yaml
 packages:
   - "apps/*"
 ```
 
-- [ ] **Step 5: Create each Python package/service skeleton**
+- [ ] **Step 6: Create each Python package/service skeleton**
 
-For each of `packages/core`, `packages/fpl_client`, `packages/ingest`, `packages/ml`, `services/api`, `services/worker`: create `src/<import_name>/__init__.py` (empty) and `pyproject.toml`. Template (substitute name/import_name/deps per package — deps filled in later tasks, start with `[]`):
+For each of `packages/core`, `packages/fpl_client`, `packages/ingest`, `packages/ml`, `services/api`, `services/worker`: create `src/<import_name>/__init__.py` (empty) and `pyproject.toml`. Template (substitute name/import_name per package — deps start as `[]`, filled in by later tasks):
 
 ```toml
 [project]
@@ -136,15 +139,20 @@ packages = ["src/fplguru_core"]
 
 Import-name map: core→`fplguru_core`, fpl_client→`fplguru_fpl_client`, ingest→`fplguru_ingest`, ml→`fplguru_ml`, api→`fplguru_api`, worker→`fplguru_worker`.
 
-- [ ] **Step 6: Sync and verify the workspace resolves**
+- [ ] **Step 7: Create the virtualenv and install everything editable**
 
-Run:
+Run (from repo root):
 ```bash
-uv sync
+python -m venv .venv
 ```
-Expected: creates `.venv`, resolves all 6 workspace members, exit 0.
+Then activate it — **Git Bash:** `source .venv/Scripts/activate` · **PowerShell:** `.venv\Scripts\Activate.ps1` · **cmd:** `.venv\Scripts\activate.bat`. Confirm `python -c "import sys; print(sys.prefix)"` points inside `.venv`. Then:
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements-dev.txt
+```
+Expected: all 6 local packages install in editable mode, test deps resolve, exit 0. Every later `python -m ...` command in this plan assumes this venv is active.
 
-- [ ] **Step 7: Add a trivial import test**
+- [ ] **Step 8: Add a trivial import test**
 
 Create `packages/core/tests/test_smoke.py`:
 ```python
@@ -154,15 +162,15 @@ def test_package_imports():
 
 Run:
 ```bash
-uv run pytest packages/core/tests/test_smoke.py -v
+python -m pytest packages/core/tests/test_smoke.py -v
 ```
 Expected: 1 passed.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add -A
-git commit -m "chore: scaffold uv/pnpm monorepo workspace"
+git commit -m "chore: scaffold pip/pnpm monorepo (venv + editable installs)"
 ```
 
 ---
@@ -197,7 +205,7 @@ volumes:
 
 - [ ] **Step 2: Add dependency**
 
-In `packages/core/pyproject.toml` set `dependencies = ["pydantic-settings>=2.3", "pydantic>=2.7"]`, then run `uv sync`.
+In `packages/core/pyproject.toml` set `dependencies = ["pydantic-settings>=2.3", "pydantic>=2.7"]`, then run `pip install -r requirements-dev.txt`.
 
 - [ ] **Step 3: Write the failing test**
 
@@ -220,7 +228,7 @@ def test_env_prefix_override(monkeypatch):
 
 - [ ] **Step 4: Run test to verify it fails**
 
-Run: `uv run pytest packages/core/tests/test_settings.py -v`
+Run: `python -m pytest packages/core/tests/test_settings.py -v`
 Expected: FAIL — `ModuleNotFoundError: fplguru_core.settings`.
 
 - [ ] **Step 5: Write `settings.py`**
@@ -249,7 +257,7 @@ def get_settings() -> Settings:
 
 - [ ] **Step 6: Run test to verify it passes**
 
-Run: `uv run pytest packages/core/tests/test_settings.py -v`
+Run: `python -m pytest packages/core/tests/test_settings.py -v`
 Expected: 2 passed.
 
 - [ ] **Step 7: Write `.env.example`**
@@ -296,7 +304,7 @@ dependencies = [
     "greenlet>=3.0",
 ]
 ```
-Run `uv sync`.
+Run `pip install -r requirements-dev.txt`.
 
 - [ ] **Step 2: Write `constants.py`**
 
@@ -355,7 +363,7 @@ def test_fixture_gameweek_is_nullable_for_unscheduled():
 
 - [ ] **Step 5: Run test to verify it fails**
 
-Run: `uv run pytest packages/core/tests/test_models.py -v`
+Run: `python -m pytest packages/core/tests/test_models.py -v`
 Expected: FAIL — `ModuleNotFoundError: fplguru_core.models`.
 
 - [ ] **Step 6: Write `models.py`**
@@ -449,7 +457,7 @@ class DataSyncLog(Base):
 
 - [ ] **Step 7: Run test to verify it passes**
 
-Run: `uv run pytest packages/core/tests/test_models.py -v`
+Run: `python -m pytest packages/core/tests/test_models.py -v`
 Expected: 3 passed.
 
 - [ ] **Step 8: Commit**
@@ -467,13 +475,12 @@ git commit -m "feat: core SQLAlchemy models and async session"
 - Create: `alembic.ini`, `alembic/env.py`, `alembic/script.py.mako`, `alembic/versions/0001_initial.py`
 - Create: `packages/core/tests/conftest.py` (shared DB fixture for all packages via root `conftest.py`)
 - Create: `conftest.py` (repo root — re-exports the db fixtures)
-- Modify: root `pyproject.toml` dev group (add `alembic>=1.13`)
 
-- [ ] **Step 1: Add Alembic and init async template**
+- [ ] **Step 1: Init the async Alembic template**
 
-Add `"alembic>=1.13"` to root `[dependency-groups] dev`, `uv sync`, then:
+`alembic>=1.13` is already in `requirements-dev.txt` (installed in Task 1). From the repo root with the venv active:
 ```bash
-uv run alembic init -t async alembic
+python -m alembic init -t async alembic
 ```
 Expected: creates `alembic/`, `alembic.ini`.
 
@@ -495,7 +502,7 @@ and every `config.get_main_option("sqlalchemy.url")` call is replaced with `_url
 
 Ensure infra is up (`docker compose -f infra/docker-compose.yml up -d`), then:
 ```bash
-uv run alembic revision --autogenerate -m "initial" --rev-id 0001
+python -m alembic revision --autogenerate -m "initial" --rev-id 0001
 ```
 Expected: creates `alembic/versions/0001_initial.py` with `create_table` for all 5 tables.
 
@@ -503,7 +510,7 @@ Expected: creates `alembic/versions/0001_initial.py` with `create_table` for all
 
 Run:
 ```bash
-uv run alembic upgrade head
+python -m alembic upgrade head
 ```
 Expected: `Running upgrade  -> 0001, initial`. Verify:
 ```bash
@@ -584,7 +591,7 @@ async def test_can_insert_and_read(db_session):
     assert got.short_name == "ARS"
 ```
 
-Run: `uv run pytest packages/core/tests/test_db_fixture.py -v`
+Run: `python -m pytest packages/core/tests/test_db_fixture.py -v`
 Expected: 1 passed (test DB `fplguru_test` auto-created).
 
 - [ ] **Step 7: Commit**
@@ -605,7 +612,7 @@ git commit -m "feat: alembic async migrations and pytest postgres fixtures"
 
 - [ ] **Step 1: Add dependencies**
 
-Set `packages/fpl_client/pyproject.toml` `dependencies = ["httpx>=0.27", "tenacity>=8.3"]`, `uv sync`.
+Set `packages/fpl_client/pyproject.toml` `dependencies = ["httpx>=0.27", "tenacity>=8.3"]`, `pip install -r requirements-dev.txt`.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -664,7 +671,7 @@ async def test_raises_after_exhausting_retries():
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `uv run pytest packages/fpl_client/tests/test_client.py -v`
+Run: `python -m pytest packages/fpl_client/tests/test_client.py -v`
 Expected: FAIL — `ModuleNotFoundError: fplguru_fpl_client`.
 
 - [ ] **Step 4: Write `client.py`**
@@ -726,7 +733,7 @@ __all__ = ["FplApiError", "FplClient"]
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `uv run pytest packages/fpl_client/tests/test_client.py -v`
+Run: `python -m pytest packages/fpl_client/tests/test_client.py -v`
 Expected: 4 passed.
 
 - [ ] **Step 6: Commit**
@@ -748,7 +755,7 @@ git commit -m "feat: resilient async FPL API client with retry/backoff"
 
 - [ ] **Step 1: Add dependency**
 
-Set `packages/ingest/pyproject.toml` `dependencies = ["fplguru-core"]`, `uv sync`.
+Set `packages/ingest/pyproject.toml` `dependencies = ["fplguru-core"]`, `pip install -r requirements-dev.txt`.
 
 - [ ] **Step 2: Create trimmed fixture files**
 
@@ -841,7 +848,7 @@ def test_normalize_fixtures_handles_null_event_and_kickoff():
 
 - [ ] **Step 4: Run test to verify it fails**
 
-Run: `uv run pytest packages/ingest/tests/test_fpl_normalizers.py -v`
+Run: `python -m pytest packages/ingest/tests/test_fpl_normalizers.py -v`
 Expected: FAIL — `ModuleNotFoundError: fplguru_ingest.fpl`.
 
 - [ ] **Step 5: Write `fpl.py`**
@@ -931,7 +938,7 @@ def normalize_fixtures(fixtures: list[dict[str, Any]]) -> list[dict]:
 
 - [ ] **Step 6: Run test to verify it passes**
 
-Run: `uv run pytest packages/ingest/tests/test_fpl_normalizers.py -v`
+Run: `python -m pytest packages/ingest/tests/test_fpl_normalizers.py -v`
 Expected: 4 passed.
 
 - [ ] **Step 7: Commit**
@@ -961,7 +968,7 @@ dependencies = [
     "fplguru-ingest",
 ]
 ```
-Run `uv sync`.
+Run `pip install -r requirements-dev.txt`.
 
 - [ ] **Step 2: Write `app.py`**
 
@@ -1037,7 +1044,7 @@ async def test_sync_bootstrap_is_idempotent(db_session, monkeypatch):
 
 - [ ] **Step 4: Run test to verify it fails**
 
-Run: `uv run pytest services/worker/tests/test_sync_bootstrap.py -v`
+Run: `python -m pytest services/worker/tests/test_sync_bootstrap.py -v`
 Expected: FAIL — `ImportError: cannot import name '_sync_bootstrap'`.
 
 - [ ] **Step 5: Write `tasks.py`**
@@ -1155,7 +1162,7 @@ def sync_fixtures(self) -> None:
 
 - [ ] **Step 6: Run test to verify it passes**
 
-Run: `uv run pytest services/worker/tests/test_sync_bootstrap.py -v`
+Run: `python -m pytest services/worker/tests/test_sync_bootstrap.py -v`
 Expected: 2 passed.
 
 - [ ] **Step 7: Commit**
@@ -1214,7 +1221,7 @@ async def test_sync_fixtures_persists_scheduled_and_unscheduled(db_session, monk
 
 - [ ] **Step 2: Run to verify it fails, then it should pass immediately**
 
-Run: `uv run pytest services/worker/tests/test_sync_fixtures.py -v`
+Run: `python -m pytest services/worker/tests/test_sync_fixtures.py -v`
 Expected: PASS (implementation landed in Task 7). If it fails on FK/normalization, fix `_sync_fixtures`/`normalize_fixtures` until green.
 
 - [ ] **Step 3: Write the Beat schedule guard test**
@@ -1231,7 +1238,7 @@ def test_beat_schedule_registers_both_sync_jobs():
     assert sched["sync-bootstrap"]["schedule"] <= 900.0
 ```
 
-Run: `uv run pytest services/worker/tests/test_beat_schedule.py -v`
+Run: `python -m pytest services/worker/tests/test_beat_schedule.py -v`
 Expected: 1 passed.
 
 - [ ] **Step 4: Commit**
@@ -1281,7 +1288,7 @@ async def test_api_outage_logs_error_row_and_reraises(db_session, monkeypatch):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `uv run pytest services/worker/tests/test_sync_error_path.py -v`
+Run: `python -m pytest services/worker/tests/test_sync_error_path.py -v`
 Expected: FAIL — currently the FPL error is raised *before* the session opens, so no `DataSyncLog` row is written.
 
 - [ ] **Step 3: Fix `_sync_bootstrap` / `_sync_fixtures` to log fetch failures**
@@ -1302,7 +1309,7 @@ In `tasks.py`, wrap the fetch so a fetch failure also records a row. Replace the
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `uv run pytest services/worker/tests/ -v`
+Run: `python -m pytest services/worker/tests/ -v`
 Expected: all worker tests pass (5 tests across 4 files).
 
 - [ ] **Step 5: Commit**
@@ -1323,7 +1330,7 @@ git commit -m "feat: record DataSyncLog error row when FPL API is unavailable"
 
 - [ ] **Step 1: Add dependencies**
 
-Set `services/api/pyproject.toml` `dependencies = ["fastapi>=0.111", "uvicorn[standard]>=0.30", "fplguru-core"]`, `uv sync`.
+Set `services/api/pyproject.toml` `dependencies = ["fastapi>=0.111", "uvicorn[standard]>=0.30", "fplguru-core"]`, `pip install -r requirements-dev.txt`.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -1396,7 +1403,7 @@ async def test_status_reports_last_sync(client, db_session):
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `uv run pytest services/api/tests/test_api.py -v`
+Run: `python -m pytest services/api/tests/test_api.py -v`
 Expected: FAIL — `ModuleNotFoundError: fplguru_api.main`.
 
 - [ ] **Step 4: Write `main.py`**
@@ -1476,15 +1483,15 @@ async def status(db: AsyncSession = Depends(get_db)) -> dict:
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `uv run pytest services/api/tests/test_api.py -v`
+Run: `python -m pytest services/api/tests/test_api.py -v`
 Expected: 4 passed.
 
 - [ ] **Step 6: Manual smoke against real data (optional but recommended)**
 
 ```bash
-uv run alembic upgrade head
-uv run python -c "import asyncio; from fplguru_worker.tasks import _sync_bootstrap; asyncio.run(_sync_bootstrap())"
-uv run uvicorn fplguru_api.main:app --port 8000 &
+python -m alembic upgrade head
+python -c "import asyncio; from fplguru_worker.tasks import _sync_bootstrap; asyncio.run(_sync_bootstrap())"
+python -m uvicorn fplguru_api.main:app --port 8000 &
 curl -s localhost:8000/gameweeks/current
 ```
 Expected: JSON for the real current/next gameweek.
@@ -1509,7 +1516,7 @@ git commit -m "feat: FastAPI service with health, status, and gameweek endpoints
 
 - [ ] **Step 1: Add dependency**
 
-Set `packages/ingest/pyproject.toml` `dependencies = ["fplguru-core", "pandas>=2.2"]`, `uv sync`.
+Set `packages/ingest/pyproject.toml` `dependencies = ["fplguru-core", "pandas>=2.2"]`, `pip install -r requirements-dev.txt`.
 
 - [ ] **Step 2: Create a trimmed sample CSV**
 
@@ -1557,7 +1564,7 @@ def test_normalize_merged_gw_rows():
 
 - [ ] **Step 4: Run test to verify it fails**
 
-Run: `uv run pytest packages/ingest/tests/test_historical.py -v`
+Run: `python -m pytest packages/ingest/tests/test_historical.py -v`
 Expected: FAIL — `ModuleNotFoundError: fplguru_ingest.historical`.
 
 - [ ] **Step 5: Write `historical.py`**
@@ -1596,7 +1603,7 @@ def normalize_merged_gw(csv_path: str | Path, season: str) -> list[dict]:
 
 - [ ] **Step 6: Run test to verify it passes**
 
-Run: `uv run pytest packages/ingest/tests/test_historical.py -v`
+Run: `python -m pytest packages/ingest/tests/test_historical.py -v`
 Expected: 1 passed.
 
 - [ ] **Step 7: Write the downloader script**
@@ -1605,7 +1612,7 @@ Expected: 1 passed.
 ```python
 """Download vaastav/Fantasy-Premier-League merged_gw.csv for the given seasons.
 
-Usage: uv run python scripts/fetch_historical.py 2022-23 2023-24 2024-25
+Usage: python scripts/fetch_historical.py 2022-23 2023-24 2024-25
 """
 import sys
 from pathlib import Path
@@ -1675,34 +1682,37 @@ jobs:
       FPLGURU_REDIS_URL: redis://localhost:6379/0
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: uv sync
-      - run: uv run ruff check .
-      - run: uv run alembic upgrade head
-      - run: uv run pytest -q
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pip install "ruff==0.6.*"
+      - run: python -m ruff check .
+      - run: python -m alembic upgrade head
+      - run: python -m pytest -q
 
   web:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with: { version: 9 }
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: pnpm }
+        with: { node-version: 20 }
+      - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter web test
       - run: pnpm --filter web build
 ```
 
-- [ ] **Step 2: Verify locally what CI runs**
+CI runs `ruff` (Linux, no SAC); local dev skips it. `python -m ruff` works because the `ruff` wheel exposes a `__main__`.
+
+- [ ] **Step 2: Verify locally what CI runs (minus ruff)**
 
 Run:
 ```bash
-uv run ruff check . && uv run alembic upgrade head && uv run pytest -q
+python -m alembic upgrade head && python -m pytest -q
 ```
-Expected: ruff clean, migrations apply, all Python tests pass.
+Expected: migrations apply, all Python tests pass. (`ruff` is CI-only — SAC blocks it locally. If you want a local lint proxy, `python -m pyflakes packages services` is pure-Python and runs fine, but it is not required to pass this task.)
 
 - [ ] **Step 3: Commit**
 
@@ -1720,13 +1730,21 @@ git commit -m "ci: lint + migrate + pytest with postgres/redis service container
 - Create: `apps/web/public/manifest.json`, `apps/web/src/app/page.tsx`, `apps/web/src/lib/api.ts`
 - Test: `apps/web/src/lib/api.test.ts`, `apps/web/vitest.config.ts`
 
-- [ ] **Step 1: Scaffold the app**
+- [ ] **Step 1: Enable pnpm, then scaffold the app**
 
-Run:
+`pnpm` isn't installed; get it via corepack (bundled with the existing Node):
+```bash
+corepack enable
+corepack prepare pnpm@9 --activate
+pnpm --version
+```
+Then scaffold:
 ```bash
 pnpm create next-app@latest apps/web --ts --tailwind --app --src-dir --no-eslint --use-pnpm --import-alias "@/*"
 ```
 Then from repo root: `pnpm install`.
+
+> **SAC caveat:** `next build` loads the native `@next/swc-win32-x64-msvc` addon. If Smart App Control blocks it (error mentions "Application Control policy"), skip the local `next build` in Step 7 — the `web` CI job builds on Linux where it works. `pnpm --filter web test` (Vitest, pure JS) is unaffected and must still pass locally. Report this as DONE_WITH_CONCERNS if it happens.
 
 - [ ] **Step 2: Add Vitest**
 
@@ -1854,28 +1872,35 @@ git commit -m "feat: next.js PWA shell reading /status with manifest"
 FPL tracking + predictive analytics platform. See `docs/plans/` for the build plan.
 
 ## Prerequisites
-- Python 3.12, [uv](https://docs.astral.sh/uv/), Node 20, pnpm 9, Docker
+- Python 3.12 (from python.org — with "Add to PATH")
+- Node 20+ (pnpm comes via `corepack enable`)
+- Docker Desktop (running)
 
 ## First run
 ```bash
 cp .env.example .env
 docker compose -f infra/docker-compose.yml up -d
-uv sync
-uv run alembic upgrade head
+
+python -m venv .venv
+# activate: source .venv/Scripts/activate  (Git Bash) | .venv\Scripts\Activate.ps1 (PowerShell)
+python -m pip install --upgrade pip
+python -m pip install -r requirements-dev.txt
+
+python -m alembic upgrade head
 # populate DB from the live FPL API
-uv run python -c "import asyncio; from fplguru_worker.tasks import _sync_bootstrap, _sync_fixtures; asyncio.run(_sync_bootstrap()); asyncio.run(_sync_fixtures())"
+python -c "import asyncio; from fplguru_worker.tasks import _sync_bootstrap, _sync_fixtures; asyncio.run(_sync_bootstrap()); asyncio.run(_sync_fixtures())"
 ```
 
-## Run services
+## Run services (venv active)
 ```bash
-uv run uvicorn fplguru_api.main:app --reload --port 8000
-uv run celery -A fplguru_worker.app.celery_app worker -B --loglevel=info
+python -m uvicorn fplguru_api.main:app --reload --port 8000
+python -m celery -A fplguru_worker.app.celery_app worker -B --loglevel=info
 pnpm --filter web dev
 ```
 
 ## Test
 ```bash
-uv run ruff check . && uv run pytest -q
+python -m pytest -q          # lint (ruff) runs in CI only — Smart App Control blocks it locally
 pnpm --filter web test
 ```
 ````
@@ -1884,14 +1909,14 @@ pnpm --filter web test
 
 Verify each and check the box:
 - [ ] `docker compose -f infra/docker-compose.yml up -d` → postgres + redis `Up`
-- [ ] `uv sync` → all 6 workspace members resolve
-- [ ] `uv run alembic upgrade head` → 5 tables + `alembic_version` created
-- [ ] `uv run ruff check .` → clean
-- [ ] `uv run pytest -q` → all tests pass (core, fpl_client, ingest, worker, api)
+- [ ] `.venv` active; `python -m pip install -r requirements-dev.txt` → all 6 local packages install editable, no errors
+- [ ] `python -m alembic upgrade head` → 5 tables + `alembic_version` created
+- [ ] `python -m pytest -q` → all tests pass (core, fpl_client, ingest, worker, api)
+- [ ] CI `python` job green on the PR → includes `python -m ruff check .`
 - [ ] Bootstrap populate command → `players`, `teams`, `gameweeks` rows > 0
 - [ ] `curl localhost:8000/gameweeks/current` → real current/next GW JSON
 - [ ] `curl localhost:8000/status` → `fpl_bootstrap` + `fpl_fixtures` with recent `as_of`
-- [ ] `celery ... worker -B` runs; after ~15 min a new `data_sync_log` row appears with `status='ok'`
+- [ ] `python -m celery ... worker -B` runs; after ~15 min a new `data_sync_log` row appears with `status='ok'`
 - [ ] `pnpm --filter web dev` → homepage shows "FPL data as of <timestamp>"
 
 - [ ] **Step 3: Commit**
@@ -1920,6 +1945,14 @@ git commit -m "docs: README and Foundation acceptance checklist"
 - `DataSyncLog` fields (`source`, `status`, `detail`, `started_at`, `finished_at`) consistent across Tasks 3, 7, 9, 10 ✓
 - Normalizer output keys in Task 6 (`gameweek_id`, `home_team_id`, `home_difficulty`, …) match `Fixture` columns in Task 3 and the assertions in Task 8 ✓
 - `fetchStatus` / `SyncStatus` shape in Task 13 matches `/status` response in Task 10 (`sources.<name>.status`, `.as_of`) ✓
+
+**4. Toolchain (revised from `uv` to `venv`+`pip` after Smart App Control blocked `uv` on the dev machine):**
+- No `uv`/`uvx`/`uv run` remain in the plan; every tool is `python -m <tool>` ✓
+- Root `pyproject.toml` carries config only; deps live in each package's `pyproject.toml` + `requirements-dev.txt` (editable installs) ✓
+- `ruff` removed from local flow, runs in CI only (Linux) ✓
+- `pnpm` obtained via `corepack enable` (Task 13) rather than a standalone install ✓
+- CI uses `actions/setup-python` + `pip`, not `astral-sh/setup-uv` ✓
+- Known residual risk flagged inline: native addons (`@next/swc`, possibly `asyncpg` wheels) may also be SAC-blocked locally → fall back to CI for those pieces, never disable SAC.
 
 ---
 
