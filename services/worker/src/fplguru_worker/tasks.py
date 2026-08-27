@@ -12,6 +12,7 @@ from fplguru_core.models import (
     Gameweek,
     LinkedTeam,
     Player,
+    PlayerGwLive,
     PlayerGwStat,
     Team,
 )
@@ -24,6 +25,7 @@ from fplguru_ingest.fpl import (
     normalize_players,
     normalize_teams,
 )
+from fplguru_live import build_live_rows
 from fplguru_worker.app import celery_app
 from fplguru_worker.entries import sync_entry
 from fplguru_worker.xp import compute_and_store_xp
@@ -228,6 +230,63 @@ async def _sync_gw_stats() -> None:
 def sync_gw_stats(self) -> None:
     try:
         asyncio.run(_run_and_dispose(_sync_gw_stats))
+    except Exception as exc:
+        raise self.retry(exc=exc) from exc
+
+
+async def _upsert_live(session, rows: list[dict]) -> None:
+    if not rows:
+        return
+    stmt = pg_insert(PlayerGwLive).values(rows)
+    update_cols = {
+        c: stmt.excluded[c] for c in rows[0] if c not in ("player_id", "gameweek_id")
+    }
+    update_cols["updated_at"] = func.now()
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["player_id", "gameweek_id"], set_=update_cols
+    )
+    await session.execute(stmt)
+
+
+async def _poll_live() -> None:
+    started = datetime.now(UTC)
+    try:
+        async with get_sessionmaker()() as session:
+            gw = (
+                await session.execute(select(Gameweek).where(Gameweek.is_current))
+            ).scalar_one_or_none()
+        if gw is None:
+            async with get_sessionmaker()() as session, session.begin():
+                await _record(session, "live_poll", "ok", started, "no current gameweek")
+            return
+
+        client = FplClient(get_settings().fpl_api_base)
+        try:
+            all_fixtures = await client.fixtures()
+            gw_fixtures = [f for f in all_fixtures if f.get("event") == gw.id]
+            live = [f for f in gw_fixtures if f.get("started") and not f.get("finished")]
+            payload = await client.event_live(gw.id) if live else None
+        finally:
+            await client.aclose()
+
+        async with get_sessionmaker()() as session, session.begin():
+            await _upsert(session, Fixture, normalize_fixtures(gw_fixtures))
+            if payload is None:
+                await _record(session, "live_poll", "ok", started, "no live fixtures")
+                return
+            rows = build_live_rows(gw.id, payload)
+            await _upsert_live(session, rows)
+            await _record(session, "live_poll", "ok", started, f"{len(rows)} rows")
+        logger.info("live poll: %d players over %d live fixtures", len(rows), len(live))
+    except Exception as exc:
+        await _log_error("live_poll", started, exc)
+        raise
+
+
+@celery_app.task(name="poll_live", bind=True, max_retries=2, default_retry_delay=30)
+def poll_live(self) -> None:
+    try:
+        asyncio.run(_run_and_dispose(_poll_live))
     except Exception as exc:
         raise self.retry(exc=exc) from exc
 

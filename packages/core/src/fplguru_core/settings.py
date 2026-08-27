@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     fpl_api_base: str = "https://fantasy.premierleague.com/api"
     environment: str = "local"
     xp_artifact_dir: str = "packages/ml/artifacts/basic"
+    live_poll_seconds: float = 60.0          # Beat cadence for poll_live
+    live_stream_poll_seconds: float = 5.0    # how often the SSE endpoint re-reads the DB
 
 
 @lru_cache

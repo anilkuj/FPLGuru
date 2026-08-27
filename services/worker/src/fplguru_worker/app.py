@@ -15,6 +15,7 @@ celery_app.conf.update(
         "sync-gw-stats": {"task": "sync_gw_stats", "schedule": 3600.0},    # hourly
         "compute-xp": {"task": "compute_xp", "schedule": 3600.0},          # hourly
         "sync-linked-teams": {"task": "sync_linked_teams", "schedule": 3600.0},
+        "poll-live": {"task": "poll_live", "schedule": settings.live_poll_seconds},
     },
 )
 
