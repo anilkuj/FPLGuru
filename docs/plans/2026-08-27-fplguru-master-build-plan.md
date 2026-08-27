@@ -2,7 +2,16 @@
 
 > **What this is:** The top-level roadmap. It locks the architecture decisions the PRD left open, defines the repo layout, and decomposes the product into a sequence of **independently shippable sub-plans**. Each sub-plan gets its own detailed TDD document (see `docs/plans/`). Only the Foundation sub-plan is fully detailed today: [`2026-08-27-foundation.md`](2026-08-27-foundation.md).
 
-**Goal:** Ship the PRD's FPL tracking + predictive-analytics platform as a web dashboard + PWA, freemium ($3.99/mo Pro), built on one primary language stack to keep the ML engine and the API in the same runtime.
+**Goal:** Ship the PRD's FPL tracking + predictive-analytics platform as a web dashboard + PWA, built on one primary language stack to keep the ML engine and the API in the same runtime.
+
+> ### ⚠️ SCOPE OVERRIDE (2026-08-27): no payments, no tiers
+> The owner has decided the product is **free with no Free/Pro tiers**. This supersedes all "Pro-gated", "$3.99/mo", "freemium", trial, and Stripe language anywhere in this document and the PRD:
+> - **P1g (Subscriptions/Stripe) — DROPPED.** No `subscriptions` table, no tier-gate middleware, no webhooks.
+> - **P4c (Annual Billing) — DROPPED.** (A referral mechanic could still be built as growth-only if wanted.)
+> - Every feature marked "Pro" is just a feature, available to everyone. Horizon selectors expose the full 1–10 range to all users. Alert message caps become a user-configurable setting (default: uncapped).
+> - **P1a-auth** (accounts) is now *optional* — only for cross-device sync / saved preferences, and blocks nothing.
+> - Milestones M2/M3 drop their "Stripe in test mode" / "flip Stripe to live" criteria.
+> Remaining sub-plans after this override: **17** (F, P1a, P1c done; P1g + P4c dropped).
 
 **Source of truth:** `PRD.md` (the document this plan is derived from). Section references below (`§5.3` etc.) point at that PRD.
 
@@ -99,7 +108,7 @@ Each sub-plan produces **working, testable software on its own** and has its own
 | **P1d** | FDR Table | Platform-computed FDR grid per team, horizon selector 1–5 (10 = Pro-gated stub), color-coded, preference persisted. | F | §4.6 |
 | **P1e** | Alerts Engine + Priority Ranking | **Priority-ranking design doc first** (PRD next-steps §11.4), then: alert model, generators (injury/availability from `chance_of_playing`/`news`, fixture reminder, FDR shift, DGW/BGW), in-app feed + Web Push delivery, free 10-msg/GW cap with reset at deadline + drop-lowest-priority + "upgrade" message as the 10th send. | F, P1a | §4.3, §3 |
 | **P1f** | Deadline Reminders | 24h/2h/1h/30m presets + up to 3 user custom offsets; fires through P1e's channels. | P1e | §4.4 |
-| **P1g** | Subscriptions (Stripe) scaffold | Checkout → webhook → `subscriptions` row → `tier` gate decorator/middleware usable by any endpoint; Stripe customer portal; trial + cancel. Few Pro features live yet, but the gate exists. | P1a | §3, §6.1, §8 |
+| ~~**P1g**~~ | ~~Subscriptions (Stripe) scaffold~~ — **DROPPED** (scope override: no payments) | — | — | — |
 | **P1h** | PWA | `manifest.json`, service worker (offline shell + last-known data cache), one-tap install prompt, Web Push subscription mgmt (VAPID), background sync. | P1a | §4.2 |
 
 ### Phase 2 — Core Differentiators
@@ -131,7 +140,7 @@ Each sub-plan produces **working, testable software on its own** and has its own
 |---|---|---|---|---|
 | **P4a** | Saved Optimization Plans | Up to 5 saved plans per Pro user. | P2d, P1g | §4.5, §3 |
 | **P4b** | Model Transparency Page | Public "last GW xP vs actual" + rolling MAE/RMSE per position; A/B model-version switch. | P1c, P2b | §5.7 |
-| **P4c** | Annual Billing + Referral/Growth | Annual Stripe price + discount; referral mechanic (if pursued). | P1g | §8, §9 |
+| ~~**P4c**~~ | ~~Annual Billing~~ — **DROPPED** (scope override). Referral/growth mechanic optional, standalone. | — | §9 |
 
 ---
 
