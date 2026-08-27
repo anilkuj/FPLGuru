@@ -1,0 +1,39 @@
+import json
+from pathlib import Path
+
+import httpx
+import respx
+from sqlalchemy import func, select
+
+from fplguru_core.models import DataSyncLog, Gameweek, Player, Team
+from fplguru_worker.tasks import _sync_bootstrap
+
+BOOTSTRAP = json.loads(
+    (Path(__file__).parents[3] / "packages/ingest/tests/fixtures/bootstrap_sample.json").read_text()
+)
+BASE = "https://fpl.test/api"
+
+
+@respx.mock
+async def test_sync_bootstrap_upserts_and_logs(db_session, monkeypatch):
+    monkeypatch.setenv("FPLGURU_FPL_API_BASE", BASE)
+    respx.get(f"{BASE}/bootstrap-static/").mock(return_value=httpx.Response(200, json=BOOTSTRAP))
+
+    await _sync_bootstrap()
+
+    assert (await db_session.execute(select(func.count()).select_from(Team))).scalar() == 1
+    assert (await db_session.execute(select(func.count()).select_from(Gameweek))).scalar() == 2
+    assert (await db_session.execute(select(func.count()).select_from(Player))).scalar() == 1
+    log = (await db_session.execute(select(DataSyncLog))).scalar_one()
+    assert (log.source, log.status) == ("fpl_bootstrap", "ok")
+
+
+@respx.mock
+async def test_sync_bootstrap_is_idempotent(db_session, monkeypatch):
+    monkeypatch.setenv("FPLGURU_FPL_API_BASE", BASE)
+    respx.get(f"{BASE}/bootstrap-static/").mock(return_value=httpx.Response(200, json=BOOTSTRAP))
+
+    await _sync_bootstrap()
+    await _sync_bootstrap()
+
+    assert (await db_session.execute(select(func.count()).select_from(Player))).scalar() == 1

@@ -2,7 +2,12 @@
 name = "fplguru-worker"
 version = "0.0.0"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "celery[redis]>=5.4",
+    "fplguru-core",
+    "fplguru-fpl-client",
+    "fplguru-ingest",
+]
 
 [build-system]
 requires = ["hatchling"]
