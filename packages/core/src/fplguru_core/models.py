@@ -261,3 +261,15 @@ class Alert(_TimestampMixin, Base):
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     suppressed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    pushed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PushSubscription(_TimestampMixin, Base):
+    """A browser Web Push endpoint registered for one linked team."""
+    __tablename__ = "push_subscriptions"
+    __table_args__ = (UniqueConstraint("endpoint", name="uq_push_subscriptions_endpoint"),)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    linked_team_id: Mapped[int] = mapped_column(ForeignKey("linked_teams.id"), index=True)
+    endpoint: Mapped[str] = mapped_column(String(512))
+    p256dh: Mapped[str] = mapped_column(String(255))
+    auth: Mapped[str] = mapped_column(String(255))
