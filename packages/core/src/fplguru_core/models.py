@@ -310,3 +310,33 @@ class LeagueStanding(_TimestampMixin, Base):
     last_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total: Mapped[int] = mapped_column(Integer, default=0)
     event_total: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class LlmCall(Base):
+    """One LLM request, for the monthly-budget ledger + observability."""
+    __tablename__ = "llm_calls"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    feature: Mapped[str] = mapped_column(String(32), index=True)
+    model: Mapped[str] = mapped_column(String(48))
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    est_cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    status: Mapped[str] = mapped_column(String(12))  # ok | error | skipped
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+
+class CaptainRationale(_TimestampMixin, Base):
+    """Cached LLM rationale for a captain pick, keyed to the gameweek it was made for."""
+    __tablename__ = "captain_rationale"
+    __table_args__ = (
+        UniqueConstraint("player_id", "gameweek_id", "kind",
+                         name="uq_captain_rationale_player_id_gameweek_id_kind"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
+    gameweek_id: Mapped[int] = mapped_column(ForeignKey("gameweeks.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))  # constrained | unconstrained
+    text: Mapped[str] = mapped_column(String)
+    model: Mapped[str] = mapped_column(String(48), default="")
