@@ -357,6 +357,21 @@ class XpRationale(_TimestampMixin, Base):
     model: Mapped[str] = mapped_column(String(48), default="")
 
 
+class OptimizationPlan(_TimestampMixin, Base):
+    """A named snapshot of an /optimize result for a linked team."""
+    __tablename__ = "optimization_plan"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    linked_team_id: Mapped[int] = mapped_column(ForeignKey("linked_teams.id"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    horizon: Mapped[int] = mapped_column(Integer)
+    max_transfers: Mapped[int] = mapped_column(Integer)
+    model_version: Mapped[str] = mapped_column(String(16))
+    payload: Mapped[str] = mapped_column(String)  # json.dumps of the optimizer result
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+
 class PitchTeamMap(_TimestampMixin, Base):
     __tablename__ = "pitch_team_map"
     __table_args__ = (UniqueConstraint("pitch_team_id", name="uq_pitch_team_map_pitch_team_id"),)
