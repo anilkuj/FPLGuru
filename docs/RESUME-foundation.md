@@ -1,8 +1,20 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b/P2c/P2d/P4b/P2f shipped** (PRs #9–#18 merged) + **P4a (Saved Optimization Plans) built on `feature/p4a-saved-plans`** (Tasks 1–4 done, committed, not yet pushed) — `optimization_plan` table (`0013`) + `POST/GET/DELETE /entries/{id}/plans` + `/optimize` save/reopen UI. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **All unblocked master-plan sub-plans are now shipped.** Remaining (P3a YouTube key → P3c, P3b press source, P3d WhatsApp BSP, P1a-auth OAuth/email) are all blocked on external keys/decisions — nothing left to build autonomously without input.
+**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b/P2c/P2d/P4b/P2f/P4a shipped** (PRs #9–#19 merged). **Every master-plan sub-plan that isn't blocked on an external key or a product decision is now done.** Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred by user.**
 **Last updated:** 2026-08-28.
-**Branch:** `feature/p4a-saved-plans` (off `main`), not pushed — next: full sweep → review → PR → merge. **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
+**Branch:** `main` (P4a merged `7f09f66`). **App runs locally + smoke-verified end-to-end** this session: API `python -m uvicorn fplguru_api.main:app --port 8000 --app-dir services/api/src`, web `pnpm --filter web dev` (:3000). Local dev DB is stale (few finished GWs, no fresh `adv-v1` rows) — run the worker / `sync_all()` to repopulate before demoing xP numbers.
+
+## What's left (all blocked — needs your input)
+
+| Sub-plan | Blocked on |
+|---|---|
+| **P3a** YouTube ingestion → **P3c** creator-consensus | a **YouTube Data API v3 key** (`FPLGURU_YOUTUBE_KEY`) + a shortlist of channels to ingest |
+| **P3b** Press-conference / news layer | a decision on the **news source** (official pressers scrape? a paid feed? RSS set?) |
+| **P3d** WhatsApp alerts | a **WhatsApp Business API provider** (Twilio / Meta Cloud API) + Meta business verification |
+| **P1a-auth** Accounts (email+pw / Google) | **OAuth client creds** + an **email transport** (SES/Resend/etc.) — optional; blocks nothing else |
+| **P2g** Telegram alerts | deferred by user ("later") — needs a bot token |
+
+Nothing else in `docs/plans/2026-08-27-fplguru-master-build-plan.md` is actionable without one of the above.
 
 ---
 
@@ -420,9 +432,7 @@ Plan: [`docs/plans/2026-08-28-p4a-saved-optimization-plans.md`](plans/2026-08-28
 
 **Notes:** `payload` is opaque JSON text, never queried. Mutating routes use `await db.commit()` (not `db.begin()`). Cap enforced by deleting rows beyond `saved_plans_cap` newest-first.
 
-**Verification:** `pytest -q -W error` → **245 passed**; `ruff` / `alembic check` clean; web `vitest run` → 31 passed; `next build` → success.
-
-**Next:** whole-branch review → PR `feature/p4a-saved-plans` → `main`. **After this the autonomous roadmap is exhausted** — remaining sub-plans (P3a-d, P1a-auth) need external keys / decisions.
+**Verification:** `pytest -q -W error` → **245 passed**; `ruff` / `alembic check` clean; web `vitest run` → 31 passed; `next build` → success. **Merged to `main` as PR #19 (`7f09f66`).** End-to-end smoke: `POST /entries/1/plans` created a snapshot and `GET /entries/1/plans` returned it.
 
 ---
 
