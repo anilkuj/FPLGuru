@@ -143,10 +143,28 @@ export function markAlertsSeen(base: string, entryId: number, ids?: number[]) {
   }).then(asJson<{ marked: number }>);
 }
 
-export function updateEntrySettings(base: string, entryId: number, alertCap: number | null) {
+export type EntrySettings = {
+  fpl_entry_id: number;
+  alert_cap: number | null;
+  reminder_offsets: number[];
+};
+
+export function getEntrySettings(base: string, entryId: number) {
+  return fetch(`${base}/entries/${entryId}/settings`, { cache: "no-store" }).then(
+    asJson<EntrySettings>,
+  );
+}
+
+export function updateEntrySettings(
+  base: string,
+  entryId: number,
+  opts: { alertCap?: number | null; reminderOffsets?: number[] },
+) {
+  const body: Record<string, unknown> = { alert_cap: opts.alertCap ?? null };
+  if (opts.reminderOffsets !== undefined) body.reminder_offsets = opts.reminderOffsets;
   return fetch(`${base}/entries/${entryId}/settings`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ alert_cap: alertCap }),
-  }).then(asJson<{ fpl_entry_id: number; alert_cap: number | null }>);
+    body: JSON.stringify(body),
+  }).then(asJson<EntrySettings>);
 }
