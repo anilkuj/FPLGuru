@@ -38,7 +38,7 @@ export type EntryHistoryRow = {
   points_on_bench: number;
 };
 
-async function asJson<T>(res: Response): Promise<T> {
+export async function asJson<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`http ${res.status}`);
   return (await res.json()) as T;
 }
