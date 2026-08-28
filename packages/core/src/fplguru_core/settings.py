@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     llm_monthly_usd_cap: float = 5.0
     pitchapi_key: str = ""
     pitchapi_base: str = "https://api.pitchapi.dev/v1"
+    cors_origins: list[str] = ["*"]
 
 
 @lru_cache
