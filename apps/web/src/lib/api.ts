@@ -168,3 +168,53 @@ export function updateEntrySettings(
     body: JSON.stringify(body),
   }).then(asJson<EntrySettings>);
 }
+
+export type MiniLeague = {
+  league_id: number;
+  league_name: string;
+  entry_rank: number | null;
+  entry_last_rank: number | null;
+  delta: number | null;
+};
+export type StandingRow = {
+  entry_id: number;
+  entry_name: string;
+  player_name: string;
+  rank: number;
+  last_rank: number | null;
+  total: number;
+  event_total: number;
+  delta: number | null;
+};
+export type LeagueStandings = { league_id: number; standings: StandingRow[] };
+export type RankPoint = {
+  gameweek_id: number;
+  overall_rank: number | null;
+  points: number;
+  total_points: number;
+};
+
+export function getEntryLeagues(base: string, entryId: number) {
+  return fetch(`${base}/entries/${entryId}/leagues`, { cache: "no-store" }).then(
+    asJson<MiniLeague[]>,
+  );
+}
+export function getLeagueStandings(base: string, leagueId: number) {
+  return fetch(`${base}/leagues/${leagueId}/standings`, { cache: "no-store" }).then(
+    asJson<LeagueStandings>,
+  );
+}
+export function searchLeague(base: string, leagueId: number, q: string) {
+  return fetch(`${base}/leagues/${leagueId}/search?q=${encodeURIComponent(q)}`, {
+    cache: "no-store",
+  }).then(
+    asJson<
+      Array<Pick<StandingRow, "entry_id" | "entry_name" | "player_name" | "rank" | "total">>
+    >,
+  );
+}
+export function getRankHistory(base: string, entryId: number) {
+  return fetch(`${base}/entries/${entryId}/rank-history`, { cache: "no-store" }).then(
+    asJson<RankPoint[]>,
+  );
+}
