@@ -25,7 +25,7 @@ services/api           FastAPI: /health /ready /gameweeks /gameweeks/current /st
                        /push/vapid-public-key /entries/{id}/push/subscribe
 services/worker        Celery worker + Beat: sync_bootstrap / sync_fixtures / sync_gw_stats
                        / compute_xp / sync_linked_teams / poll_live / generate_alerts
-                       / deliver_push
+                       / deliver_push / sync_league_standings
 apps/web               Next.js 16 (App Router) PWA shell
 alembic/               async migrations
 infra/                 docker-compose (Postgres 16 + Redis 7)
@@ -160,6 +160,20 @@ with the PWA work (P1h); today the feed is in-app only.
 ```
 
 `price_change` and `fdr_shift` generators need historical snapshots and are follow-ups.
+
+## Leagues
+
+`sync_entry` captures the manager's classic mini-leagues (`linked_team_leagues`), and a
+`sync_league_standings` worker task (Beat, 2h) refreshes the top slice of each distinct tracked
+league (`league_standings`). The "global" board is just the FPL "Overall" league (id 314) that
+every manager is in; a dedicated global top-N crawl is a follow-up.
+
+```bash
+#   GET /entries/{id}/leagues                 -> mini-leagues + rank + weekly delta
+#   GET /leagues/{id}/standings[?limit=50]    -> stored standings page
+#   GET /leagues/{id}/search?q=               -> manager/team search within a league
+#   GET /entries/{id}/rank-history            -> per-GW overall rank series
+```
 
 ## PWA
 
