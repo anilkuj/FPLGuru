@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b/P2c/P2d/P4b/P2f shipped** (PRs #9–#18 merged). P2f = `fplguru-h2h` pkg + `GET /entries/{id}/h2h/{opponent_id}` + `/h2h` web page. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **Next: P4a (Saved Optimization Plans)** — the last unblocked sub-plan. Everything else (P3a-d, P1a-auth) is blocked on external keys/decisions.
+**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b/P2c/P2d/P4b/P2f shipped** (PRs #9–#18 merged) + **P4a (Saved Optimization Plans) built on `feature/p4a-saved-plans`** (Tasks 1–4 done, committed, not yet pushed) — `optimization_plan` table (`0013`) + `POST/GET/DELETE /entries/{id}/plans` + `/optimize` save/reopen UI. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **All unblocked master-plan sub-plans are now shipped.** Remaining (P3a YouTube key → P3c, P3b press source, P3d WhatsApp BSP, P1a-auth OAuth/email) are all blocked on external keys/decisions — nothing left to build autonomously without input.
 **Last updated:** 2026-08-28.
-**Branch:** `main` (P2f merged `f27f772`); P4a in progress on `feature/p4a-saved-plans`. **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
+**Branch:** `feature/p4a-saved-plans` (off `main`), not pushed — next: full sweep → review → PR → merge. **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
 
 ---
 
@@ -404,6 +404,25 @@ Plan: [`docs/plans/2026-08-28-p2f-h2h-match-helper.md`](plans/2026-08-28-p2f-h2h
 **Caveat:** the endpoint calls `sync_entry` (network) per request — it upserts the opponent into `linked_teams`, which is harmless (`/link` stays idempotent, nothing gates on "my teams"). A short-TTL skip is a follow-up. Template strategy only in v1.
 
 **Verification:** `pytest -q -W error` → **241 passed**; `ruff` / `alembic check` clean; web `vitest run` → 28 passed; `next build` → success (`/h2h` route). **Merged to `main` as PR #18 (`f27f772`).**
+
+---
+
+## P4a — Saved Optimization Plans (branch `feature/p4a-saved-plans`)
+
+Plan: [`docs/plans/2026-08-28-p4a-saved-optimization-plans.md`](plans/2026-08-28-p4a-saved-optimization-plans.md). Named snapshots of `/optimize` results.
+
+| Task | What | Status |
+|---|---|---|
+| 1 | `OptimizationPlan` model + `optimization_plan` table (`0013`; `payload` = `String`/TEXT json blob, explicit `created_at` index, FK `linked_team_id` **BigInteger** to match `linked_teams.id`); `saved_plans_cap: int = 5` setting; models exact-set test updated | ✅ |
+| 2 | `entry_optimize` body → `_run_optimize(db, lt, *, horizon, max_transfers, free_transfers, model)` (returns the same dict, `entry_id` now `lt.fpl_entry_id`); `POST /entries/{id}/plans` (`_PlanIn` body, clamps params, snapshots `_run_optimize`, evicts oldest past cap, returns summary + `plan`); `GET` list (summaries only) / `GET /{plan_id}` (full `plan`) / `DELETE /{plan_id}` (204); all `_linked_or_404` + team-scoped | ✅ |
+| 3 | web: `listPlans`/`createPlan`/`getPlan`/`deletePlan` clients + types; `OptimizeView` Saved-plans `Card` (name `Input`, "Save current", per-row Open → reload snapshot + sync selectors, Delete) | ✅ |
+| 4 | docs (README, master plan, this file) | ✅ |
+
+**Notes:** `payload` is opaque JSON text, never queried. Mutating routes use `await db.commit()` (not `db.begin()`). Cap enforced by deleting rows beyond `saved_plans_cap` newest-first.
+
+**Verification:** `pytest -q -W error` → **245 passed**; `ruff` / `alembic check` clean; web `vitest run` → 31 passed; `next build` → success.
+
+**Next:** whole-branch review → PR `feature/p4a-saved-plans` → `main`. **After this the autonomous roadmap is exhausted** — remaining sub-plans (P3a-d, P1a-auth) need external keys / decisions.
 
 ---
 

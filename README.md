@@ -146,6 +146,11 @@ price-change modelling and true chip simulation are follow-ups.
 
 The `/optimize` web page renders it with horizon / max-transfers selectors.
 
+**Saved plans** — `POST /entries/{id}/plans` snapshots the current `/optimize` result under a name
+(`GET` lists summaries, `GET .../{plan_id}` returns the full snapshot, `DELETE` removes one). Capped
+per team at `saved_plans_cap` (default 5; oldest evicted). The `/optimize` page saves and reopens
+them.
+
 ## H2H Match Helper
 
 `fplguru-h2h` (pure) compares your squad to any manager's: each side's best XI + captain on

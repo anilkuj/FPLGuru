@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from fplguru_entrysync import sync_entry
 from fplguru_fdr import compute_fdr
 from pydantic import BaseModel
-from sqlalchemy import desc, distinct, func, select, text
+from sqlalchemy import delete, desc, distinct, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fplguru_api.llm import generate_within_budget
@@ -28,6 +28,7 @@ from fplguru_core.models import (
     LeagueStanding,
     LinkedTeam,
     LinkedTeamLeague,
+    OptimizationPlan,
     Player,
     PlayerGwLive,
     PlayerGwPrediction,
@@ -731,14 +732,8 @@ async def overpowered(horizon: int = Query(5, ge=1, le=10),
     return pick_overpowered_xi(players)
 
 
-@app.get("/entries/{entry_id}/optimize")
-async def entry_optimize(entry_id: int, horizon: int = Query(5, ge=1, le=10),
-                         max_transfers: int = Query(2, ge=0, le=3),
-                         free_transfers: int = Query(1, ge=0, le=5),
-                         model: str = Query("advanced",
-                                            pattern="^(auto|basic|advanced)$"),
-                         db: AsyncSession = Depends(get_db)) -> dict:
-    lt = await _linked_or_404(db, entry_id)
+async def _run_optimize(db: AsyncSession, lt: LinkedTeam, *, horizon: int,
+                        max_transfers: int, free_transfers: int, model: str) -> dict:
     mv = await _resolve_model_version(db, model)
     latest_gw = (await db.execute(
         select(func.max(EntryPick.gameweek_id)).where(EntryPick.linked_team_id == lt.id)
@@ -800,7 +795,7 @@ async def entry_optimize(entry_id: int, horizon: int = Query(5, ge=1, le=10),
                       team_ids=team_ids)
 
     return {
-        "entry_id": entry_id, "horizon": horizon, "model": mv, "bank": int(bank),
+        "entry_id": lt.fpl_entry_id, "horizon": horizon, "model": mv, "bank": int(bank),
         "current": best_xi(squad, key="xp"),
         "transfer_plans": suggest_transfers(
             squad, market, bank=int(bank), free_transfers=free_transfers,
@@ -808,6 +803,95 @@ async def entry_optimize(entry_id: int, horizon: int = Query(5, ge=1, le=10),
         ),
         "chips": chip_hints(cal, squad_team_ids=team_ids),
     }
+
+
+@app.get("/entries/{entry_id}/optimize")
+async def entry_optimize(entry_id: int, horizon: int = Query(5, ge=1, le=10),
+                         max_transfers: int = Query(2, ge=0, le=3),
+                         free_transfers: int = Query(1, ge=0, le=5),
+                         model: str = Query("advanced",
+                                            pattern="^(auto|basic|advanced)$"),
+                         db: AsyncSession = Depends(get_db)) -> dict:
+    lt = await _linked_or_404(db, entry_id)
+    return await _run_optimize(db, lt, horizon=horizon, max_transfers=max_transfers,
+                               free_transfers=free_transfers, model=model)
+
+
+class _PlanIn(BaseModel):
+    name: str = "My plan"
+    horizon: int = 5
+    max_transfers: int = 2
+    free_transfers: int = 1
+    model: str = "advanced"
+
+
+def _plan_summary(p: OptimizationPlan) -> dict:
+    return {"id": p.id, "name": p.name, "created_at": p.created_at.isoformat(),
+            "horizon": p.horizon, "max_transfers": p.max_transfers,
+            "model": p.model_version}
+
+
+@app.post("/entries/{entry_id}/plans", status_code=201)
+async def create_plan(entry_id: int, body: _PlanIn,
+                      db: AsyncSession = Depends(get_db)) -> dict:
+    lt = await _linked_or_404(db, entry_id)
+    h = max(1, min(10, body.horizon))
+    mt = max(0, min(3, body.max_transfers))
+    mdl = body.model if body.model in ("auto", "basic", "advanced") else "advanced"
+    result = await _run_optimize(db, lt, horizon=h, max_transfers=mt,
+                                 free_transfers=max(0, min(5, body.free_transfers)),
+                                 model=mdl)
+    plan = OptimizationPlan(linked_team_id=lt.id, name=(body.name or "My plan")[:80],
+                            horizon=h, max_transfers=mt,
+                            model_version=result["model"], payload=json.dumps(result))
+    db.add(plan)
+    await db.flush()
+    cap = get_settings().saved_plans_cap
+    stale = (await db.execute(
+        select(OptimizationPlan.id).where(OptimizationPlan.linked_team_id == lt.id)
+        .order_by(OptimizationPlan.created_at.desc(), OptimizationPlan.id.desc())
+    )).scalars().all()[cap:]
+    for sid in stale:
+        await db.execute(delete(OptimizationPlan).where(OptimizationPlan.id == sid))
+    summary = _plan_summary(plan)
+    await db.commit()
+    return {**summary, "plan": result}
+
+
+@app.get("/entries/{entry_id}/plans")
+async def list_plans(entry_id: int, db: AsyncSession = Depends(get_db)) -> list[dict]:
+    lt = await _linked_or_404(db, entry_id)
+    rows = (await db.execute(
+        select(OptimizationPlan).where(OptimizationPlan.linked_team_id == lt.id)
+        .order_by(OptimizationPlan.created_at.desc(), OptimizationPlan.id.desc())
+    )).scalars().all()
+    return [_plan_summary(p) for p in rows]
+
+
+@app.get("/entries/{entry_id}/plans/{plan_id}")
+async def get_plan(entry_id: int, plan_id: int,
+                   db: AsyncSession = Depends(get_db)) -> dict:
+    lt = await _linked_or_404(db, entry_id)
+    p = (await db.execute(
+        select(OptimizationPlan).where(OptimizationPlan.id == plan_id,
+                                       OptimizationPlan.linked_team_id == lt.id)
+    )).scalar_one_or_none()
+    if p is None:
+        raise HTTPException(status_code=404, detail="plan not found")
+    return {**_plan_summary(p), "plan": json.loads(p.payload)}
+
+
+@app.delete("/entries/{entry_id}/plans/{plan_id}", status_code=204)
+async def delete_plan(entry_id: int, plan_id: int,
+                      db: AsyncSession = Depends(get_db)) -> None:
+    lt = await _linked_or_404(db, entry_id)
+    res = await db.execute(
+        delete(OptimizationPlan).where(OptimizationPlan.id == plan_id,
+                                       OptimizationPlan.linked_team_id == lt.id)
+    )
+    await db.commit()
+    if res.rowcount == 0:
+        raise HTTPException(status_code=404, detail="plan not found")
 
 
 @app.get("/model/transparency")
