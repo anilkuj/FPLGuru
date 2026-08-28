@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** **PHASE 1 COMPLETE** + **P2h, P2i, P2e, P2a shipped.** ✅ #1–#11 merged to `main` (F, P1a-c-d-b-e-f-h, P2h #9, P2i #10, P2e #11). **P2a PitchAPI xG built on `feature/p2a-pitchapi-xg`** (Tasks 1–7 done, Task 8 docs finishing; not yet pushed). Scope pivot 2026-08-27: **free, no tiers** — P1g + P4c dropped; P1a-auth optional. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **P2b (Advanced xP) now unblocked.** Also unblocked: P2d optimizer, P2f H2H, P2c (needs P2b).
+**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a shipped** (PRs #9–#12 merged) + **P1i design overhaul**. **P1i Design System & App Shell built on `feature/p1i-design-system`** (Tasks 1–11 done, Task 12 docs finishing; not yet pushed) — dark tokens, shadcn-style primitives, responsive sidebar shell, recharts, all 8 pages restyled, landing page, + a `fix(api): CORS` so the browser can call the API. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **P2b (Advanced xP) now unblocked.** Also unblocked: P2d optimizer, P2f H2H, P2c (needs P2b).
 **Last updated:** 2026-08-28.
-**Branch:** `feature/p2a-pitchapi-xg` (off `main`), not pushed.
+**Branch:** `feature/p1i-design-system` (off `main`), not pushed. **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000); DB populated (20 teams / 616 players / 2465 predictions).
 
 ---
 
@@ -282,7 +282,30 @@ See `git log feature/p2a-pitchapi-xg` for exact SHAs.
 
 **⚠️ PitchAPI response shapes are assumptions from the published docs** — `/date/{d}` match objects, `/matches/{id}/shots` (`shots[].expected_goals`), `/matches/{id}/advanced/players` (`players[].possession_value.vaep_total`, `.creation.xag`, `.passing.key_passes`, `.minutes_played`). **Run `python scripts/pitch_probe.py <date>` with the real key and reconcile the normalizers before trusting a live `sync_xg`.** `_sync_xg` groups unsynced finished-GW fixtures by kickoff date, hits `/date`, matches PitchAPI teams→FPL (lazy-seeding `pitch_team_map`), then per fixture matches players, upserts `player_xg` on `(player_id, fixture_id)`, and stores unmatched pitch players as `pitch_player_map` rows with `player_id NULL, method='unmatched'` (fix via `scripts/pitch_map.py`). Any `PitchApiError`/exception → `DataSyncLog(source='pitch_xg', status='error')` → visible on `/status`. No key → single `ok` "no pitchapi key" row, no work.
 
-**Verification (repo state after Task 7):** `python -m pytest -q -W error` → **193 passed**, no warnings; `ruff` clean; `alembic check` clean; web `vitest run` → 19 passed; `next build` → success. **Live PitchAPI not exercised.**
+**Verification (repo state after Task 7):** `python -m pytest -q -W error` → **193 passed**, no warnings; `ruff` clean; `alembic check` clean; web `vitest run` → 19 passed; `next build` → success. **Merged to `main` as PR #12 (`4855031`)** (+ `fix(api): CORS`).
+
+---
+
+## P1i — Design System & App Shell (branch `feature/p1i-design-system`)
+
+Plan: [`docs/plans/2026-08-28-p1i-design-system.md`](plans/2026-08-28-p1i-design-system.md). Frontend-only overhaul, driven by the user wanting a modern professional UI (wassupfpl.com *genre*, own identity). Gates: `next build` + `vitest run` (19 api-client tests unchanged) + browser check per page.
+
+| Task | What | Status |
+|---|---|---|
+| 1 | dark design tokens (Tailwind v4 `@theme`, `--primary` violet / `--positive` green, navy surfaces, light override) + deps (radix, cva, clsx, tailwind-merge, lucide-react, next-themes, recharts, tw-animate-css) + `cn()` | ✅ |
+| 2 | `src/components/ui/*` — hand-written shadcn-style Button/Card/Badge/Table/Tabs/Input/Select/Skeleton/Separator/Sheet + barrel | ✅ |
+| 3 | `AppShell` (fixed sidebar `md+`, mobile `Sheet` drawer, sticky topbar with page label + team pill, alerts-unseen badge, `ThemeToggle`) + `Providers` (`next-themes`); `layout.tsx` rewired | ✅ |
+| 4 | `PageHeader` / `StatTile` / `Delta` / `EmptyState` / `DataTable` (client sort) / `Chart` (`RankLine`, `MiniBars` on recharts) | ✅ |
+| 5 | landing `/` — hero + 6 feature cards + `LinkTeamCard` | ✅ |
+| 6–11 | restyle `/fdr` (coloured band grid), `/tools` (shadcn Tabs + Cards + xG DataTable), `/live`, `/alerts` (accent-bar cards + icons), `/leagues` + `/leagues/[id]` (rank-line chart, sortable standings), `/captain` (two cards, top pick ringed), `/squad` (DataTable) | ✅ |
+| 12 | polish + `.gitignore` Next's `AGENTS.md`/`CLAUDE.md` + manifest/icon colours (`#0b0e14`) + docs | 🔧 finishing |
+See `git log feature/p1i-design-system` for exact SHAs.
+
+**Also fixed:** the API had **no CORS middleware**, so the browser couldn't call it (`curl` worked, `fetch` from :3000 didn't). Added `CORSMiddleware(allow_origins=get_settings().cors_origins)` — default `["*"]`, `FPLGURU_CORS_ORIGINS` to lock down in prod.
+
+**Verification (repo state after Task 11):** web `./node_modules/.bin/next build` → success (11 routes); `./node_modules/.bin/vitest run` → 19 passed; Python `pytest -q -W error` unchanged. Visual: `/`, `/fdr`, `/tools` confirmed rendering real data in the in-app browser. `next-themes` toggle + mobile drawer wired but not screenshot-verified (browser pane not displayed).
+
+**Old files removed:** `src/app/NavAlerts.tsx`, `src/app/leagues/RankSparkline.tsx` (folded into `AppShell` / `Chart`).
 
 ---
 
