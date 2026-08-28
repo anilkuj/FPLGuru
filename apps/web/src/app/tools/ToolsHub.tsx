@@ -8,13 +8,15 @@ import {
   getOverpowered,
   getTemplate,
   getTrends,
+  getXgSnapshot,
   type OverpoweredXI,
   type TemplateXI,
   type Trends,
+  type XgSnapshot,
 } from "@/lib/api";
 
 const API = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
-const TABS = ["Trends", "Template", "Calendar", "Overpowered XI"] as const;
+const TABS = ["Trends", "Template", "Calendar", "Overpowered XI", "xG"] as const;
 type Tab = (typeof TABS)[number];
 
 function TrendList({ title, rows }: { title: string; rows: Trends["transfers_in"] }) {
@@ -39,6 +41,8 @@ export function ToolsHub() {
   const [template, setTemplate] = useState<TemplateXI | null>(null);
   const [calendar, setCalendar] = useState<CalendarWeek[] | null>(null);
   const [op, setOp] = useState<OverpoweredXI | null>(null);
+  const [xg, setXg] = useState<XgSnapshot | null>(null);
+  const [xgPos, setXgPos] = useState("");
   const [horizon, setHorizon] = useState(5);
   const [range, setRange] = useState<[number, number]>([1, 8]);
   const [err, setErr] = useState<string | null>(null);
@@ -62,6 +66,13 @@ export function ToolsHub() {
         .then(setOp)
         .catch(() => setErr("Could not load this tool."));
   }, [tab, horizon]);
+
+  useEffect(() => {
+    if (tab === "xG")
+      getXgSnapshot(API, 6, xgPos || undefined)
+        .then(setXg)
+        .catch(() => setErr("Could not load this tool."));
+  }, [tab, xgPos]);
 
   return (
     <>
@@ -178,6 +189,55 @@ export function ToolsHub() {
                 ))}
               </ul>
             </>
+          )}
+        </div>
+      )}
+
+      {tab === "xG" && (
+        <div className="mt-4">
+          <label className="text-sm text-gray-500">
+            Position{" "}
+            <select
+              className="rounded border px-2 py-1"
+              value={xgPos}
+              onChange={(e) => setXgPos(e.target.value)}
+            >
+              <option value="">All</option>
+              {["GK", "DEF", "MID", "FWD"].map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </label>
+          {xg && xg.players.length === 0 && (
+            <p className="mt-3 text-sm text-gray-500">
+              No xG data yet — the <code>sync_xg</code> task fills this after matches.
+            </p>
+          )}
+          {xg && xg.players.length > 0 && (
+            <table className="mt-3 text-sm border-collapse">
+              <thead>
+                <tr className="text-left">
+                  <th className="px-2 py-1">Player</th>
+                  <th className="px-2 py-1">Pos</th>
+                  <th className="px-2 py-1 text-right">xG</th>
+                  <th className="px-2 py-1 text-right">xA</th>
+                  <th className="px-2 py-1 text-right">min</th>
+                </tr>
+              </thead>
+              <tbody>
+                {xg.players.slice(0, 40).map((p) => (
+                  <tr key={p.player_id} className="border-t">
+                    <td className="px-2 py-1 font-medium">{p.web_name}</td>
+                    <td className="px-2 py-1 text-gray-500">{p.position}</td>
+                    <td className="px-2 py-1 text-right">{p.xg}</td>
+                    <td className="px-2 py-1 text-right">{p.xag}</td>
+                    <td className="px-2 py-1 text-right text-gray-400">{p.minutes}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
       )}
