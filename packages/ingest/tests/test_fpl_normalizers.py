@@ -43,6 +43,14 @@ def test_normalize_players_maps_position_and_percent():
     assert row["now_cost"] == 100
 
 
+def test_normalize_players_carries_trend_fields():
+    row = normalize_players(BOOTSTRAP)[0]
+    assert row["transfers_in_event"] == 150000
+    assert row["transfers_out_event"] == 20000
+    assert row["cost_change_event"] == 1
+    assert row["form"] == 5.5
+
+
 def test_normalize_fixtures_handles_null_event_and_kickoff():
     rows = normalize_fixtures(FIXTURES)
     assert rows[0]["gameweek_id"] == 1

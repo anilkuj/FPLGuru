@@ -78,6 +78,10 @@ class Player(_TimestampMixin, Base):
     news: Mapped[str] = mapped_column(String, default="", server_default="")
     selected_by_percent: Mapped[float] = mapped_column(Float, default=0.0)
     total_points: Mapped[int] = mapped_column(Integer, default=0)
+    transfers_in_event: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    transfers_out_event: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    cost_change_event: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # tenths
+    form: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
 
 
 class Fixture(_TimestampMixin, Base):

@@ -15,6 +15,8 @@
     {"id": 11, "team": 1, "element_type": 3, "first_name": "Bukayo", "second_name": "Saka",
      "web_name": "Saka", "now_cost": 100, "status": "a",
      "chance_of_playing_next_round": 100, "news": "",
-     "selected_by_percent": "42.1", "total_points": 0}
+     "selected_by_percent": "42.1", "total_points": 0,
+     "transfers_in_event": 150000, "transfers_out_event": 20000,
+     "cost_change_event": 1, "form": "5.5"}
   ]
 }
