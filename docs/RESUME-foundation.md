@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** **PHASE 1 COMPLETE** + **P2h, P2i, P2e shipped.** ✅ F (#1), P1c (#2), P1a (#3), P1d (#4), P1b (#5), P1e (#6), P1f (#7), P1h (#8), P2h (#9), P2i (#10) merged to `main`. **P2e AI Captain built on `feature/p2e-ai-captain`** (Tasks 1–5 done, Task 6 docs finishing; not yet pushed). Scope pivot 2026-08-27: **free, no tiers** — P1g + P4c dropped; P1a-auth optional. **Decided 2026-08-27:** xG source → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`, opaque `p_` ids need fuzzy FPL mapping — P2a unblocked); LLM provider → **Google Gemini** (REST, `FPLGURU_GEMINI_KEY`, `$5/mo` default cap; reusable `fplguru-llm` + `llm_calls` ledger + `generate_within_budget` shipped in P2e). **Telegram (P2g) deferred by the user.** **Unblocked next:** P2a (PitchAPI ingestion → P2b Advanced xP), P2d optimizer, P2f H2H, P2c (LLM explanation, needs P2b).
-**Last updated:** 2026-08-27.
-**Branch:** `feature/p2e-ai-captain` (off `main`), not pushed.
+**Status:** **PHASE 1 COMPLETE** + **P2h, P2i, P2e, P2a shipped.** ✅ #1–#11 merged to `main` (F, P1a-c-d-b-e-f-h, P2h #9, P2i #10, P2e #11). **P2a PitchAPI xG built on `feature/p2a-pitchapi-xg`** (Tasks 1–7 done, Task 8 docs finishing; not yet pushed). Scope pivot 2026-08-27: **free, no tiers** — P1g + P4c dropped; P1a-auth optional. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **P2b (Advanced xP) now unblocked.** Also unblocked: P2d optimizer, P2f H2H, P2c (needs P2b).
+**Last updated:** 2026-08-28.
+**Branch:** `feature/p2a-pitchapi-xg` (off `main`), not pushed.
 
 ---
 
@@ -260,7 +260,29 @@ See `git log feature/p2e-ai-captain` for exact SHAs.
 
 **Design:** ranks on **Basic xP** (`PlayerGwPrediction`, `horizon` 1–5) — no P2b/P2c dependency for v1. Per request, the #1 constrained + #1 unconstrained pick get a rationale: check `captain_rationale` cache for `(player_id, current_gw, kind)`; miss → `generate_within_budget` (Gemini); text → cache it; `None` → `_template_rationale`. `rationale_source` is `"llm"` if either pick used the LLM/cache, else `"template"`. Monthly spend = `SUM(llm_calls.est_cost_usd)` since the 1st of the month ≥ `llm_monthly_usd_cap` → skip. **No key set (the default) → always templated, no error.**
 
-**Verification (repo state after Task 5):** `python -m pytest -q -W error` → **179 passed**, no warnings; `ruff` clean; `alembic check` clean; web `vitest run` → 18 passed; `next build` → success (`/captain` static). **Live Gemini call not exercised** — needs `FPLGURU_GEMINI_KEY` set + `compute_xp` predictions present.
+**Verification (repo state after Task 5):** `python -m pytest -q -W error` → **179 passed**, no warnings; `ruff` clean; `alembic check` clean; web `vitest run` → 18 passed; `next build` → success (`/captain` static). **Merged to `main` as PR #11 (`7d1c73f`).**
+
+---
+
+## P2a — PitchAPI xG/xA Ingestion (branch `feature/p2a-pitchapi-xg`)
+
+Plan: [`docs/plans/2026-08-27-p2a-pitchapi-xg.md`](plans/2026-08-27-p2a-pitchapi-xg.md). Executed inline, TDD; verification switched to per-package targeted runs + one full sweep (speed).
+
+| Task | What | Status |
+|---|---|---|
+| 1 | `packages/pitch` (`fplguru-pitch`) — async client (`matches_on`, `match_advanced_players`, `match_shots`; `X-API-KEY`; 429 retry honouring `Retry-After`; `PitchApiError`) | ✅ |
+| 2 | `packages/pitchmatch` — pure `match_teams` (norm + alias), `match_players` (surname+initial+mapped team), `normalize_match_xg` (xG = Σ shot `expected_goals`; xag/min/kp from advanced) | ✅ |
+| 3 | `pitch_team_map` / `pitch_player_map` / `player_xg` (`0011`) + `pitchapi_key` / `pitchapi_base` settings | ✅ |
+| 4 | worker `_sync_xg(only_dates=None)` + `sync_xg` task + `sync-xg` Beat (daily) + `pitch_xg` in `/status` known set | ✅ |
+| 5 | `scripts/pitch_probe.py` (dump live JSON to verify shapes), `pitch_map.py` (manual override / list unmatched), `backfill_xg.py` (date-range) | ✅ |
+| 6 | `GET /players/{id}/xg?last=` + `GET /xg-snapshot?last=&position=` (the P2i tool) | ✅ |
+| 7 | web `getXgSnapshot` + an **xG tab** on `/tools` | ✅ |
+| 8 | docs (README xG section, master plan ✅ + P2b unblocked, this file) | 🔧 finishing |
+See `git log feature/p2a-pitchapi-xg` for exact SHAs.
+
+**⚠️ PitchAPI response shapes are assumptions from the published docs** — `/date/{d}` match objects, `/matches/{id}/shots` (`shots[].expected_goals`), `/matches/{id}/advanced/players` (`players[].possession_value.vaep_total`, `.creation.xag`, `.passing.key_passes`, `.minutes_played`). **Run `python scripts/pitch_probe.py <date>` with the real key and reconcile the normalizers before trusting a live `sync_xg`.** `_sync_xg` groups unsynced finished-GW fixtures by kickoff date, hits `/date`, matches PitchAPI teams→FPL (lazy-seeding `pitch_team_map`), then per fixture matches players, upserts `player_xg` on `(player_id, fixture_id)`, and stores unmatched pitch players as `pitch_player_map` rows with `player_id NULL, method='unmatched'` (fix via `scripts/pitch_map.py`). Any `PitchApiError`/exception → `DataSyncLog(source='pitch_xg', status='error')` → visible on `/status`. No key → single `ok` "no pitchapi key" row, no work.
+
+**Verification (repo state after Task 7):** `python -m pytest -q -W error` → **193 passed**, no warnings; `ruff` clean; `alembic check` clean; web `vitest run` → 19 passed; `next build` → success. **Live PitchAPI not exercised.**
 
 ---
 
