@@ -11,6 +11,7 @@
 -e ./packages/llm
 -e ./packages/captain
 -e ./packages/explain
+-e ./packages/optimize
 -e ./packages/pitch
 -e ./packages/pitchmatch
 -e ./services/api
