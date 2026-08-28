@@ -23,9 +23,12 @@ from fplguru_core.models import (
     LeagueStanding,
     LinkedTeam,
     LinkedTeamLeague,
+    PitchPlayerMap,
+    PitchTeamMap,
     Player,
     PlayerGwLive,
     PlayerGwStat,
+    PlayerXg,
     PushSubscription,
     Team,
 )
@@ -40,6 +43,8 @@ from fplguru_ingest.fpl import (
     normalize_teams,
 )
 from fplguru_live import build_live_rows
+from fplguru_pitch import PitchClient
+from fplguru_pitchmatch import match_players, match_teams, normalize_match_xg
 from fplguru_push import pending_push_targets
 from fplguru_worker.app import celery_app
 from fplguru_worker.entries import sync_entry
@@ -619,5 +624,127 @@ async def _sync_league_standings() -> None:
 def sync_league_standings(self) -> None:
     try:
         asyncio.run(_run_and_dispose(_sync_league_standings))
+    except Exception as exc:
+        raise self.retry(exc=exc) from exc
+
+
+async def _upsert_xg(session, rows: list[dict]) -> None:
+    if not rows:
+        return
+    stmt = pg_insert(PlayerXg).values(rows)
+    cols = {c: stmt.excluded[c] for c in rows[0] if c not in ("player_id", "fixture_id")}
+    cols["updated_at"] = func.now()
+    await session.execute(stmt.on_conflict_do_update(
+        index_elements=["player_id", "fixture_id"], set_=cols))
+
+
+async def _sync_xg(only_dates: set[str] | None = None) -> None:
+    started = datetime.now(UTC)
+    key = get_settings().pitchapi_key
+    if not key:
+        async with get_sessionmaker()() as session, session.begin():
+            await _record(session, "pitch_xg", "ok", started, "no pitchapi key")
+        return
+    try:
+        async with get_sessionmaker()() as session:
+            teams = (await session.execute(select(Team))).scalars().all()
+            players = [
+                {"id": p.id, "web_name": p.web_name, "first_name": p.first_name,
+                 "second_name": p.second_name, "team_id": p.team_id}
+                for p in (await session.execute(select(Player))).scalars().all()
+            ]
+            team_map = {m.pitch_team_id: m.team_id for m in
+                        (await session.execute(select(PitchTeamMap))).scalars().all()}
+            done_fixture_ids = set((await session.execute(
+                select(PlayerXg.fixture_id).distinct()
+            )).scalars().all())
+            fixtures = [
+                f for f in (await session.execute(
+                    select(Fixture).join(Gameweek, Gameweek.id == Fixture.gameweek_id)
+                    .where(Gameweek.finished.is_(True), Fixture.finished.is_(True),
+                           Fixture.kickoff_time.is_not(None))
+                )).scalars().all()
+                if f.id not in done_fixture_ids
+            ]
+        fpl_teams = [{"id": t.id, "name": t.name, "short_name": t.short_name} for t in teams]
+
+        client = PitchClient(key, base=get_settings().pitchapi_base)
+        new_team_maps: dict[str, int] = {}
+        new_player_maps: dict[str, tuple[int | None, str, str]] = {}
+        pt_name: dict[str, str] = {}
+        xg_rows: list[dict] = []
+        try:
+            by_date: dict[str, list] = {}
+            for f in fixtures:
+                d = f.kickoff_time.date().isoformat()
+                if only_dates is None or d in only_dates:
+                    by_date.setdefault(d, []).append(f)
+            for date, day_fixtures in by_date.items():
+                matches = await client.matches_on(date)
+                pitch_teams = []
+                for m in matches:
+                    for side in ("home_team", "away_team"):
+                        if m.get(side):
+                            pitch_teams.append(m[side])
+                pt_name.update({pt["id"]: pt.get("name", "") for pt in pitch_teams})
+                for ptid, fid in match_teams(fpl_teams, pitch_teams).items():
+                    if ptid not in team_map:
+                        team_map[ptid] = fid
+                        new_team_maps[ptid] = fid
+                for f in day_fixtures:
+                    match = next((
+                        m for m in matches
+                        if team_map.get((m.get("home_team") or {}).get("id")) == f.home_team_id
+                        and team_map.get((m.get("away_team") or {}).get("id")) == f.away_team_id
+                    ), None)
+                    if match is None:
+                        continue
+                    adv = await client.match_advanced_players(match["id"])
+                    shots = await client.match_shots(match["id"])
+                    matched, unmatched = match_players(players, adv, team_map)
+                    for pp in unmatched:
+                        new_player_maps.setdefault(
+                            pp["player"]["id"],
+                            (None, pp["player"].get("name", ""), "unmatched"))
+                    for ptid, fid in matched.items():
+                        new_player_maps[ptid] = (fid, "", "auto")
+                    for row in normalize_match_xg(shots, adv):
+                        fpl_pid = matched.get(row["pitch_player_id"])
+                        if fpl_pid is None:
+                            continue
+                        xg_rows.append({
+                            "player_id": fpl_pid, "fixture_id": f.id,
+                            "gameweek_id": f.gameweek_id, "pitch_match_id": match["id"],
+                            **{k: row[k] for k in ("minutes", "xg", "xg_ot", "xag",
+                                                   "key_passes", "chances_created", "vaep")},
+                        })
+        finally:
+            await client.aclose()
+
+        async with get_sessionmaker()() as session, session.begin():
+            for ptid, fid in new_team_maps.items():
+                session.add(PitchTeamMap(pitch_team_id=ptid, team_id=fid,
+                                         pitch_name=pt_name.get(ptid, "")))
+            existing_pm = set((await session.execute(
+                select(PitchPlayerMap.pitch_player_id)
+            )).scalars().all())
+            for ptid, (fid, name, method) in new_player_maps.items():
+                if ptid in existing_pm:
+                    continue
+                session.add(PitchPlayerMap(pitch_player_id=ptid, player_id=fid,
+                                           pitch_name=name, method=method))
+            await _upsert_xg(session, xg_rows)
+            await _record(session, "pitch_xg", "ok", started,
+                          f"{len(xg_rows)} rows / {len(fixtures)} fixtures")
+        logger.info("xg synced: %d rows over %d fixtures", len(xg_rows), len(fixtures))
+    except Exception as exc:
+        await _log_error("pitch_xg", started, exc)
+        raise
+
+
+@celery_app.task(name="sync_xg", bind=True, max_retries=2, default_retry_delay=300)
+def sync_xg(self) -> None:
+    try:
+        asyncio.run(_run_and_dispose(_sync_xg))
     except Exception as exc:
         raise self.retry(exc=exc) from exc

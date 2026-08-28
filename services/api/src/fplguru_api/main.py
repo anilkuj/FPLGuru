@@ -175,7 +175,7 @@ async def live_stream(request: Request) -> StreamingResponse:
 @app.get("/status")
 async def status(db: AsyncSession = Depends(get_db)) -> dict:
     sources: dict[str, dict] = {}
-    known = {"fpl_bootstrap", "fpl_fixtures", "live_poll"}
+    known = {"fpl_bootstrap", "fpl_fixtures", "live_poll", "pitch_xg"}
     present = set((await db.execute(select(distinct(DataSyncLog.source)))).scalars().all())
     for source in sorted(known | present):
         row = (

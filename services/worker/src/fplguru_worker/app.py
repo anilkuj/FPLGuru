@@ -19,6 +19,7 @@ celery_app.conf.update(
         "generate-alerts": {"task": "generate_alerts", "schedule": 1800.0},
         "deliver-push": {"task": "deliver_push", "schedule": 60.0},
         "sync-league-standings": {"task": "sync_league_standings", "schedule": 7200.0},
+        "sync-xg": {"task": "sync_xg", "schedule": 86400.0},
     },
 )
 
