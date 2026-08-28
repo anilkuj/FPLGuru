@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** ✅ Foundation (PR #1), ✅ P1c Basic xP (PR #2), ✅ P1a Team Linking (PR #3), ✅ P1d FDR Table (PR #4), ✅ P1b Live Scores (PR #5), ✅ P1e Alerts Engine (PR #6) — merged to `main`. **P1f Deadline Reminders built on `feature/p1f-deadline-reminders`** (Tasks 1–5 done, Task 6 docs finishing; not yet pushed). Scope pivot 2026-08-27: product is **free, no Free/Pro tiers** — P1g (Stripe) + P4c (annual billing) dropped; P1a-auth optional; alert caps + reminder offsets are user-configurable, no "upgrade" message.
+**Status:** **PHASE 1 COMPLETE.** ✅ Foundation (PR #1), P1c (PR #2), P1a (PR #3), P1d (PR #4), P1b (PR #5), P1e (PR #6), P1f (PR #7) all merged to `main`. **P1h PWA built on `feature/p1h-pwa`** (Tasks 1–7 done, Task 8 docs finishing; not yet pushed). Scope pivot 2026-08-27: product is **free, no Free/Pro tiers** — P1g (Stripe) + P4c (annual billing) dropped; P1a-auth optional. **Next session = Phase 2**, which is blocked on external decisions: xG data source (Understat vs Opta) for P2a, LLM provider + monthly budget for P2c/P3a-c, Telegram bot token for P2g. Unblocked Phase-2 work with no decision needed: P2h (leaderboard), P2i (free tools), P2d basic-tier optimizer.
 **Last updated:** 2026-08-27.
-**Branch:** `feature/p1f-deadline-reminders` (off `main`), not pushed.
+**Branch:** `feature/p1h-pwa` (off `main`), not pushed.
 
 ---
 
@@ -85,7 +85,7 @@ Plan: [`docs/plans/2026-08-27-p1a-team-dashboard.md`](plans/2026-08-27-p1a-team-
 
 **Live-verified:** `POST /link/1` → "Chris Musson"; `GET /entries/1` → 15 picks with xP (Raya GK 11.0, Tzolis MID 9.5); `GET /entries/1/history` → GW1 (41 pts). 87 py tests + 3 web tests, `-W error` / `ruff` / `alembic check` clean, `next build` clean. Next: review → PR `feature/p1a-team-dashboard` → `main`.
 
-**Remaining unblocked Phase-1 path:** P1h (PWA — `manifest.json`, service worker, VAPID + push-subscription mgmt, Web Push delivery sink for the P1e/P1f alert feed). That closes Phase 1. Blocked: P1a-auth (OAuth/email — optional, blocks nothing). P1g (Stripe) and P4c (annual billing) **dropped** — product is free, no tiers.
+**Phase 1 is complete** (P1a, P1b, P1c, P1d, P1e, P1f, P1h). Optional leftover: P1a-auth (OAuth/email — blocks nothing). P1g (Stripe) + P4c (annual billing) **dropped**. Phase 2 next — see the status line at the top for which parts are blocked on decisions.
 
 **P1c notes:** hand-rolled ridge (no scikit-learn — dodges SAC native-binary block); Basic model is FPL-data-only + leak-safe features (rolling form, minutes, home/away, price, opp-conceded-to-position); component breakdown (`x_*` cols) left 0.0 for Basic, filled in Advanced (P2b). Test seeding must be **FK-parent-first** (models have no `relationship()` → single `add_all` flushes in alphabetical class order). Real training/backtest needs `python scripts/fetch_historical.py 2022-23 2023-24 2024-25` first (gitignored `data/historical/`). New `DataSyncLog.source` values `fpl_gw_stats` / `xp_compute` — Task 14 must extend `/status`'s hardcoded source tuple (or make it enumerate `distinct(source)`).
 
@@ -175,7 +175,37 @@ Plan: [`docs/plans/2026-08-27-p1f-deadline-reminders.md`](plans/2026-08-27-p1f-d
 
 **Deviations from the plan:** `reminder_offsets` is DB-**nullable** with a Python-side `default` (no `server_default`) — a JSON `server_default` makes `alembic check` blow up on `'…'::json = '…'` (json has no `=` operator). `DEFAULT_REMINDER_OFFSETS = (1440,120,60,30)` lives in `fplguru_core.models`; readers coalesce `x or list(DEFAULT_REMINDER_OFFSETS)`. The three existing `test_generate_alerts` assertions gained `deadline:9:1440` (the P1e `_seed` deadline is ~24h out, so the 1440 reminder fires). Web `updateEntrySettings` changed shape → `(base, id, {alertCap, reminderOffsets})`; only caller updated in the same task.
 
-**Verification (repo state after Task 5):** `python -m pytest -q -W error` → **135 passed**, no warnings; `ruff` clean; `alembic check` clean; web `vitest run` → 9 passed; `next build` → `/alerts` prerendered OK. Next: docs commit → PR → `main`.
+**Verification (repo state after Task 5):** `python -m pytest -q -W error` → **135 passed**, no warnings; `ruff` clean; `alembic check` clean; web `vitest run` → 9 passed; `next build` → `/alerts` prerendered OK. **Merged to `main` as PR #7 (`9da2095`).**
+
+---
+
+## P1h — PWA (branch `feature/p1h-pwa`)
+
+Plan: [`docs/plans/2026-08-27-p1h-pwa.md`](plans/2026-08-27-p1h-pwa.md). Executed inline, TDD per task.
+
+| Task | What | Status |
+|---|---|---|
+| 1 | `scripts/gen_icons.py` (zlib-only PNG writer) + committed `icon-192/512.png` | ✅ |
+| 2 | `push_subscriptions` table + `alerts.pushed_at` + `vapid_*` settings (`0007`) | ✅ |
+| 3 | `packages/push` (`fplguru-push`) — `pending_push_targets` + `notification_payload` | ✅ |
+| 4 | worker `_deliver_push` + `deliver_push` task + `deliver-push` Beat (60s); `_send_web_push` guarded (optional `pywebpush`), `PushGone` prunes dead endpoints | ✅ |
+| 5 | `GET /push/vapid-public-key`, `POST`/`DELETE /entries/{id}/push/subscribe` | ✅ |
+| 6 | `public/sw.js` (precache shell, network-first API cache, push/notificationclick) + `PwaSetup` install prompt + `viewport` themeColor | ✅ |
+| 7 | `lib/push.ts` (`getVapidKey`/`subscribePush`/`unsubscribePush`) + `PushToggle` on `/alerts`; `asJson` exported from `api.ts` | ✅ |
+| 8 | docs (README PWA section, `.env.example` VAPID vars, master plan ✅, this file) | 🔧 finishing |
+See `git log feature/p1h-pwa` for exact SHAs.
+
+**Push send is deploy-only.** `pywebpush` (→ `cryptography` + `aiohttp`) is deliberately **not** in `requirements-dev.txt` — SAC blocks that native tree on the dev box, and there's no HTTPS/real-subscription path to test it here anyway. `_send_web_push` imports it lazily; with no `FPLGURU_VAPID_PRIVATE_KEY` (the default) it logs and returns, and `_deliver_push`'s orchestration (targeting, `pushed_at` marking, 404/410 subscription pruning) is fully unit-tested with `_send_web_push` monkeypatched. To activate in production: `pip install pywebpush` in the worker image + set the three `FPLGURU_VAPID_*` env vars (`npx web-push generate-vapid-keys`).
+
+**Verification (repo state after Task 7):** `python -m pytest -q -W error` → **146 passed**, no warnings; `ruff` clean; `alembic check` clean; web `vitest run` → 11 passed; `next build` → success (`/alerts` etc. prerender; `sw.js` + icons served from `public/`).
+
+---
+
+## Milestone note (M2)
+
+M2's "Stripe checkout works end-to-end in test mode" bullet is **void** (payments dropped in the
+2026-08-27 scope pivot). The rest of M2 — `P1a, P1b, P1d, P1e, P1f, P1h` shipped + `P1c` Basic xP
+serving predictions with a published backtest + installable PWA — **is met.** Phase 1 done.
 
 ---
 

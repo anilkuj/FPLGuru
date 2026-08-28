@@ -6,6 +6,7 @@
 -e ./packages/fdr
 -e ./packages/live
 -e ./packages/alerts
+-e ./packages/push
 -e ./services/api
 -e ./services/worker
 

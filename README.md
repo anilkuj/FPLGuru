@@ -22,8 +22,10 @@ services/api           FastAPI: /health /ready /gameweeks /gameweeks/current /st
                        /gameweeks/current/live[/stream]
                        /entries/{id}/alerts /entries/{id}/alerts/seen
                        /entries/{id}/settings (GET + PATCH)
+                       /push/vapid-public-key /entries/{id}/push/subscribe
 services/worker        Celery worker + Beat: sync_bootstrap / sync_fixtures / sync_gw_stats
-                       / compute_xp / sync_linked_teams / poll_live
+                       / compute_xp / sync_linked_teams / poll_live / generate_alerts
+                       / deliver_push
 apps/web               Next.js 16 (App Router) PWA shell
 alembic/               async migrations
 infra/                 docker-compose (Postgres 16 + Redis 7)
@@ -158,6 +160,25 @@ with the PWA work (P1h); today the feed is in-app only.
 ```
 
 `price_change` and `fdr_shift` generators need historical snapshots and are follow-ups.
+
+## PWA
+
+The web app is installable (`manifest.json` + `public/sw.js`): the service worker precaches the
+app shell and serves the last-known API response when offline. `PwaSetup` captures
+`beforeinstallprompt` and shows an Install button.
+
+A `deliver_push` worker task (Beat, 60s) sends each linked team's visible alert feed as **Web
+Push** — but only when `FPLGURU_VAPID_PRIVATE_KEY` is set **and** `pywebpush` is importable.
+`pywebpush` (which pulls `cryptography` / `aiohttp`) is **not** in `requirements-dev.txt` — it is
+installed in the deploy image only (Smart App Control blocks those native binaries on the dev
+box). With no key configured, `deliver_push` is a logged no-op and the in-app feed is unaffected.
+
+```bash
+#   GET    /push/vapid-public-key
+#   POST   /entries/{id}/push/subscribe    {endpoint, keys: {p256dh, auth}}
+#   DELETE /entries/{id}/push/subscribe    {endpoint}
+# generate a VAPID keypair:  npx web-push generate-vapid-keys
+```
 
 Latest backtest: [`docs/xp-backtest/2026-08-27.md`](docs/xp-backtest/2026-08-27.md) — all four
 position groups beat the naive-mean baseline.

@@ -24,6 +24,7 @@ from fplguru_core.models import (
     Player,
     PlayerGwLive,
     PlayerGwPrediction,
+    PushSubscription,
     Team,
 )
 from fplguru_core.settings import get_settings
@@ -394,6 +395,59 @@ async def patch_entry_settings(
     }
     await db.commit()
     return result
+
+
+class _PushKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class _PushSubBody(BaseModel):
+    endpoint: str
+    keys: _PushKeys
+
+
+class _PushUnsubBody(BaseModel):
+    endpoint: str
+
+
+@app.get("/push/vapid-public-key")
+async def vapid_public_key() -> dict:
+    return {"key": get_settings().vapid_public_key}
+
+
+@app.post("/entries/{entry_id}/push/subscribe")
+async def push_subscribe(entry_id: int, body: _PushSubBody,
+                         db: AsyncSession = Depends(get_db)) -> dict:
+    lt = await _linked_or_404(db, entry_id)
+    existing = (await db.execute(
+        select(PushSubscription).where(PushSubscription.endpoint == body.endpoint)
+    )).scalar_one_or_none()
+    if existing is None:
+        db.add(PushSubscription(linked_team_id=lt.id, endpoint=body.endpoint,
+                                p256dh=body.keys.p256dh, auth=body.keys.auth))
+    else:
+        existing.linked_team_id = lt.id
+        existing.p256dh = body.keys.p256dh
+        existing.auth = body.keys.auth
+    await db.commit()
+    return {"ok": True}
+
+
+@app.delete("/entries/{entry_id}/push/subscribe")
+async def push_unsubscribe(entry_id: int, body: _PushUnsubBody,
+                           db: AsyncSession = Depends(get_db)) -> dict:
+    lt = await _linked_or_404(db, entry_id)
+    rows = (await db.execute(
+        select(PushSubscription).where(
+            PushSubscription.linked_team_id == lt.id,
+            PushSubscription.endpoint == body.endpoint,
+        )
+    )).scalars().all()
+    for r in rows:
+        await db.delete(r)
+    await db.commit()
+    return {"removed": len(rows)}
 
 
 @app.get("/players/{player_id}/xp")

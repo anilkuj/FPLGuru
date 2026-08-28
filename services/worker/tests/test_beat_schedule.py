@@ -10,4 +10,5 @@ def test_beat_schedule_registers_all_scheduled_tasks():
     assert sched["sync-linked-teams"]["task"] == "sync_linked_teams"
     assert sched["poll-live"]["task"] == "poll_live"
     assert sched["generate-alerts"]["task"] == "generate_alerts"
+    assert sched["deliver-push"]["task"] == "deliver_push"
     assert sched["sync-bootstrap"]["schedule"] <= 900.0

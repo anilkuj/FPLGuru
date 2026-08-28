@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from datetime import UTC, datetime
 
@@ -23,6 +24,7 @@ from fplguru_core.models import (
     Player,
     PlayerGwLive,
     PlayerGwStat,
+    PushSubscription,
     Team,
 )
 from fplguru_core.settings import get_settings
@@ -35,6 +37,7 @@ from fplguru_ingest.fpl import (
     normalize_teams,
 )
 from fplguru_live import build_live_rows
+from fplguru_push import pending_push_targets
 from fplguru_worker.app import celery_app
 from fplguru_worker.entries import sync_entry
 from fplguru_worker.xp import compute_and_store_xp
@@ -437,6 +440,104 @@ async def _generate_alerts() -> None:
 def generate_alerts(self) -> None:
     try:
         asyncio.run(_run_and_dispose(_generate_alerts))
+    except Exception as exc:
+        raise self.retry(exc=exc) from exc
+
+
+class PushGone(Exception):
+    """Subscription endpoint returned 404/410 — delete it."""
+
+
+_PUSH_MIN_PRIORITY = 50
+
+
+def _send_web_push(sub: PushSubscription, payload: dict) -> None:
+    """Encrypt + POST one Web Push message. Optional: needs `pywebpush` (not in
+    requirements-dev — installed only in the deploy image) and a configured VAPID
+    private key. Absent either, this is a no-op the caller still treats as 'sent'."""
+    settings = get_settings()
+    if not settings.vapid_private_key:
+        logger.info("push not configured (no VAPID private key) — skipping send")
+        return
+    try:
+        from pywebpush import WebPushException, webpush
+    except ImportError:
+        logger.warning("pywebpush not installed — skipping push send")
+        return
+    try:
+        webpush(
+            subscription_info={
+                "endpoint": sub.endpoint,
+                "keys": {"p256dh": sub.p256dh, "auth": sub.auth},
+            },
+            data=json.dumps(payload),
+            vapid_private_key=settings.vapid_private_key,
+            vapid_claims={"sub": settings.vapid_subject},
+        )
+    except WebPushException as exc:  # pragma: no cover - needs pywebpush
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if status in (404, 410):
+            raise PushGone(str(status)) from exc
+        raise
+
+
+async def _deliver_push() -> None:
+    started = datetime.now(UTC)
+    try:
+        async with get_sessionmaker()() as session, session.begin():
+            teams = (await session.execute(select(LinkedTeam))).scalars().all()
+            sent_total = 0
+            for lt in teams:
+                subs = (await session.execute(
+                    select(PushSubscription).where(PushSubscription.linked_team_id == lt.id)
+                )).scalars().all()
+                if not subs:
+                    continue
+                alerts = (await session.execute(
+                    select(Alert).where(
+                        Alert.linked_team_id == lt.id,
+                        Alert.suppressed.is_(False),
+                        Alert.seen_at.is_(None),
+                        Alert.pushed_at.is_(None),
+                    ).order_by(Alert.priority.desc())
+                )).scalars().all()
+                a_dicts = [{
+                    "id": a.id, "title": a.title, "body": a.body,
+                    "priority": a.priority, "suppressed": a.suppressed,
+                    "seen": a.seen_at is not None, "pushed": a.pushed_at is not None,
+                } for a in alerts]
+                s_dicts = [{"endpoint": s.endpoint, "p256dh": s.p256dh, "auth": s.auth,
+                            "_row": s} for s in subs]
+                dead: set[str] = set()
+                pushed_alert_ids: set[int] = set()
+                for t in pending_push_targets(a_dicts, s_dicts,
+                                              min_priority=_PUSH_MIN_PRIORITY):
+                    sub_row = t["subscription"]["_row"]
+                    if sub_row.endpoint in dead:
+                        continue
+                    try:
+                        _send_web_push(sub_row, t["payload"])
+                        pushed_alert_ids.add(t["alert"]["id"])
+                        sent_total += 1
+                    except PushGone:
+                        dead.add(sub_row.endpoint)
+                for a in alerts:
+                    if a.id in pushed_alert_ids:
+                        a.pushed_at = func.now()
+                for s in subs:
+                    if s.endpoint in dead:
+                        await session.delete(s)
+            await _record(session, "push", "ok", started, f"{sent_total} sent")
+        logger.info("push delivered: %d", sent_total)
+    except Exception as exc:
+        await _log_error("push", started, exc)
+        raise
+
+
+@celery_app.task(name="deliver_push", bind=True, max_retries=2, default_retry_delay=60)
+def deliver_push(self) -> None:
+    try:
+        asyncio.run(_run_and_dispose(_deliver_push))
     except Exception as exc:
         raise self.retry(exc=exc) from exc
 

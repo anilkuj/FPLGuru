@@ -1,8 +1,9 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 import { NavAlerts } from "./NavAlerts";
+import { PwaSetup } from "./PwaSetup";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -20,6 +21,8 @@ export const metadata: Metadata = {
   manifest: "/manifest.json",
 };
 
+export const viewport: Viewport = { themeColor: "#0b0f19" };
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
@@ -34,6 +37,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <a href="/fdr">FDR</a>
           <a href="/live">Live</a>
           <NavAlerts />
+          <PwaSetup />
         </nav>
         {children}
       </body>
