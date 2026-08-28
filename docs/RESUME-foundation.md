@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** ✅ Foundation (PR #1), ✅ P1c Basic xP (PR #2), ✅ P1a Team Linking (PR #3), ✅ P1d FDR Table (PR #4), ✅ P1b Live Scores (PR #5) — merged to `main`. **P1e Alerts Engine built on `feature/p1e-alerts`** (Tasks 1–7 done, Task 8 docs finishing; not yet pushed). Scope pivot 2026-08-27: product is **free, no Free/Pro tiers** — P1g (Stripe) + P4c (annual billing) dropped; P1a-auth optional; `alert_cap` is user-configurable (default uncapped), no "upgrade" message.
+**Status:** ✅ Foundation (PR #1), ✅ P1c Basic xP (PR #2), ✅ P1a Team Linking (PR #3), ✅ P1d FDR Table (PR #4), ✅ P1b Live Scores (PR #5), ✅ P1e Alerts Engine (PR #6) — merged to `main`. **P1f Deadline Reminders built on `feature/p1f-deadline-reminders`** (Tasks 1–5 done, Task 6 docs finishing; not yet pushed). Scope pivot 2026-08-27: product is **free, no Free/Pro tiers** — P1g (Stripe) + P4c (annual billing) dropped; P1a-auth optional; alert caps + reminder offsets are user-configurable, no "upgrade" message.
 **Last updated:** 2026-08-27.
-**Branch:** `feature/p1e-alerts` (off `main`), not pushed.
+**Branch:** `feature/p1f-deadline-reminders` (off `main`), not pushed.
 
 ---
 
@@ -85,7 +85,7 @@ Plan: [`docs/plans/2026-08-27-p1a-team-dashboard.md`](plans/2026-08-27-p1a-team-
 
 **Live-verified:** `POST /link/1` → "Chris Musson"; `GET /entries/1` → 15 picks with xP (Raya GK 11.0, Tzolis MID 9.5); `GET /entries/1/history` → GW1 (41 pts). 87 py tests + 3 web tests, `-W error` / `ruff` / `alembic check` clean, `next build` clean. Next: review → PR `feature/p1a-team-dashboard` → `main`.
 
-**Remaining unblocked Phase-1 path:** P1f (deadline reminders — extends P1e's alert channel) → P1h (PWA — `manifest.json`, service worker, VAPID + push-subscription mgmt, Web Push delivery sink for P1e alerts). Blocked: P1a-auth (OAuth/email — optional, blocks nothing). P1g (Stripe) and P4c (annual billing) **dropped** — product is free, no tiers.
+**Remaining unblocked Phase-1 path:** P1h (PWA — `manifest.json`, service worker, VAPID + push-subscription mgmt, Web Push delivery sink for the P1e/P1f alert feed). That closes Phase 1. Blocked: P1a-auth (OAuth/email — optional, blocks nothing). P1g (Stripe) and P4c (annual billing) **dropped** — product is free, no tiers.
 
 **P1c notes:** hand-rolled ridge (no scikit-learn — dodges SAC native-binary block); Basic model is FPL-data-only + leak-safe features (rolling form, minutes, home/away, price, opp-conceded-to-position); component breakdown (`x_*` cols) left 0.0 for Basic, filled in Advanced (P2b). Test seeding must be **FK-parent-first** (models have no `relationship()` → single `add_all` flushes in alphabetical class order). Real training/backtest needs `python scripts/fetch_historical.py 2022-23 2023-24 2024-25` first (gitignored `data/historical/`). New `DataSyncLog.source` values `fpl_gw_stats` / `xp_compute` — Task 14 must extend `/status`'s hardcoded source tuple (or make it enumerate `distinct(source)`).
 
@@ -153,7 +153,29 @@ Plan: [`docs/plans/2026-08-27-p1e-alerts-engine.md`](plans/2026-08-27-p1e-alerts
 
 **Deviations from the plan:** `dgw_bgw_alerts`'s `fixture_counts.get(team_id, 0)` (plan first draft had default `1`, which hid real blanks) + the worker `sum(fx_counts.values()) > 0` guard. Web feed type is `AlertFeedData` (not `AlertFeed`, to avoid clashing with the `AlertFeed` component). API mutations use `await db.commit()` (not `async with db.begin()` — the session already autobegan on the `_linked_or_404` read). "Mark all read" (no `ids`) only clears the visible feed, not suppressed rows. Tasks 6+7 in one commit.
 
-**Verification (repo state after Task 7):** `python -m pytest -q -W error` → **126 passed**, no warnings; `ruff check .` clean; `alembic check` clean; web `vitest run` → 7 passed; `next build` → `/alerts` prerendered OK. Next: docs commit → PR `feature/p1e-alerts` → `main`. **Live end-to-end not yet verified** (needs linked teams + a real availability change or DGW/BGW GW).
+**Verification (repo state after Task 7):** `python -m pytest -q -W error` → **126 passed**, no warnings; `ruff check .` clean; `alembic check` clean; web `vitest run` → 7 passed; `next build` → `/alerts` prerendered OK. **Merged to `main` as PR #6 (`a62aa3b`).** **Live end-to-end not yet verified** (needs linked teams + a real availability change or DGW/BGW GW).
+
+---
+
+## P1f — Deadline Reminders (branch `feature/p1f-deadline-reminders`)
+
+Plan: [`docs/plans/2026-08-27-p1f-deadline-reminders.md`](plans/2026-08-27-p1f-deadline-reminders.md). Executed inline, TDD per task.
+
+| Task | What | Status |
+|---|---|---|
+| 1 | `linked_teams.reminder_offsets` JSON column + `DEFAULT_REMINDER_OFFSETS` constant (`0006`) | ✅ `4f...`* |
+| 2 | `fplguru_alerts.deadline_reminder_alerts` + `_BASE["deadline"] = 55` + ≤60-min tight bump | ✅ |
+| 3 | `generate_alerts` calls it for the nearest-future-deadline GW; cap pass now loops distinct GW ids | ✅ |
+| 4 | `GET` + `PATCH /entries/{id}/settings` accept `reminder_offsets` (sanitised: >0, ≤4320, ≤7) | ✅ |
+| 5 | web: `getEntrySettings` + options-object `updateEntrySettings`; presets + free-text editor on `/alerts` | ✅ |
+| 6 | docs (README, master plan ✅, this file) + final verification | 🔧 finishing |
+*see `git log feature/p1f-deadline-reminders` for exact SHAs.
+
+**Model:** `deadline_reminder_alerts(deadline, now, offsets, *, gameweek_id)` emits one alert per offset whose window already contains `now` (`minutes_left <= offset`), dedup key `deadline:{gw}:{offset}` so each fires once. `score_alert` adds `type == "deadline"` → base 55, +15 when `minutes_left <= 60`, +10 pre-deadline (always true for these). The worker picks the Gameweek with the smallest `deadline_time > now` (works between GWs and mid-GW).
+
+**Deviations from the plan:** `reminder_offsets` is DB-**nullable** with a Python-side `default` (no `server_default`) — a JSON `server_default` makes `alembic check` blow up on `'…'::json = '…'` (json has no `=` operator). `DEFAULT_REMINDER_OFFSETS = (1440,120,60,30)` lives in `fplguru_core.models`; readers coalesce `x or list(DEFAULT_REMINDER_OFFSETS)`. The three existing `test_generate_alerts` assertions gained `deadline:9:1440` (the P1e `_seed` deadline is ~24h out, so the 1440 reminder fires). Web `updateEntrySettings` changed shape → `(base, id, {alertCap, reminderOffsets})`; only caller updated in the same task.
+
+**Verification (repo state after Task 5):** `python -m pytest -q -W error` → **135 passed**, no warnings; `ruff` clean; `alembic check` clean; web `vitest run` → 9 passed; `next build` → `/alerts` prerendered OK. Next: docs commit → PR → `main`.
 
 ---
 

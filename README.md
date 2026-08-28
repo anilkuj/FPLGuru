@@ -20,7 +20,8 @@ packages/ml            (stub — xP engine lands in a later sub-plan)
 services/api           FastAPI: /health /ready /gameweeks /gameweeks/current /status
                        /link/{id} /entries/{id}[/history] /xp /players/{id}/xp /fdr
                        /gameweeks/current/live[/stream]
-                       /entries/{id}/alerts /entries/{id}/alerts/seen /entries/{id}/settings
+                       /entries/{id}/alerts /entries/{id}/alerts/seen
+                       /entries/{id}/settings (GET + PATCH)
 services/worker        Celery worker + Beat: sync_bootstrap / sync_fixtures / sync_gw_stats
                        / compute_xp / sync_linked_teams / poll_live
 apps/web               Next.js 16 (App Router) PWA shell
@@ -140,8 +141,11 @@ projection until fixtures are final; finished-GW scoring is served from `player_
 ## Alerts
 
 A `generate_alerts` worker task (Beat, 30 min) builds a ranked, de-duplicated feed per
-linked team: player availability changes (`status` / `chance_of_playing` / `news`) and
-blank/double gameweeks for teams you own. The priority score is documented in
+linked team: player availability changes (`status` / `chance_of_playing` / `news`),
+blank/double gameweeks for teams you own, and **deadline reminders** at each
+`linked_teams.reminder_offsets` minute mark before the next deadline (default
+`[1440, 120, 60, 30]` = 24h / 2h / 1h / 30m; editable on the `/alerts` page or via
+`PATCH /entries/{id}/settings`). The priority score is documented in
 [`docs/design/2026-08-27-alert-priority-ranking.md`](docs/design/2026-08-27-alert-priority-ranking.md).
 `linked_teams.alert_cap` (default `NULL` = uncapped) suppresses the lowest-priority alerts
 beyond the cap — they stay stored, hidden unless you ask for them. Web Push delivery lands

@@ -38,18 +38,30 @@ Key facts specific to P1f:
 
 **Files:** `packages/core/src/fplguru_core/models.py`, `packages/core/tests/test_alert_model.py`, `alembic/versions/0006_reminder_offsets.py`.
 
+> **Note (applied during execution):** a JSON `server_default` breaks `alembic check`
+> (`compare_server_default` renders `'[…]'::json = '[…]'`, and Postgres `json` has no `=`).
+> So the column is DB-**nullable** with only a Python-side `default`, and a module constant
+> `DEFAULT_REMINDER_OFFSETS` in `fplguru_core.models` is the canonical fallback that every
+> reader coalesces to (`x or list(DEFAULT_REMINDER_OFFSETS)`).
+
 - [ ] **Step 1: failing test** — append to `packages/core/tests/test_alert_model.py`:
 ```python
 def test_linked_team_has_reminder_offsets_default():
     col = LinkedTeam.__table__.c.reminder_offsets
-    assert col.nullable is False
+    assert col.nullable is True
+    assert col.default is not None      # python-side default supplies the presets
 ```
 
-- [ ] **Step 2: model** — in `class LinkedTeam`, after `alert_cap`:
+- [ ] **Step 2: model** — in `models.py`, add a module constant after `_TimestampMixin`:
 ```python
-    reminder_offsets: Mapped[list] = mapped_column(
-        JSON, default=lambda: [1440, 120, 60, 30],
-        server_default='[1440, 120, 60, 30]',
+# minutes before a gameweek deadline at which to send a reminder (24h / 2h / 1h / 30m)
+DEFAULT_REMINDER_OFFSETS: tuple[int, ...] = (1440, 120, 60, 30)
+```
+and in `class LinkedTeam`, after `alert_cap`:
+```python
+    # minutes-before-deadline reminder offsets; None/[] treated as DEFAULT_REMINDER_OFFSETS
+    reminder_offsets: Mapped[list | None] = mapped_column(
+        JSON, default=lambda: list(DEFAULT_REMINDER_OFFSETS), nullable=True,
     )
 ```
 (`JSON` is already imported in `models.py`.)
@@ -57,18 +69,14 @@ def test_linked_team_has_reminder_offsets_default():
 - [ ] **Step 3: migration `alembic/versions/0006_reminder_offsets.py`** (`revision = '0006'`, `down_revision = '0005'`; header style from `0003_entry_tables.py`):
 ```python
 def upgrade() -> None:
-    op.add_column(
-        'linked_teams',
-        sa.Column('reminder_offsets', sa.JSON(), nullable=False,
-                  server_default='[1440, 120, 60, 30]'),
-    )
+    op.add_column('linked_teams', sa.Column('reminder_offsets', sa.JSON(), nullable=True))
 
 
 def downgrade() -> None:
     op.drop_column('linked_teams', 'reminder_offsets')
 ```
 
-- [ ] **Step 4:** `python -m alembic upgrade head` → ok. `python -m alembic check` → `No new upgrade operations detected.` (If drift on the default: the model `server_default` string must byte-match the migration's — keep both exactly `'[1440, 120, 60, 30]'`.)
+- [ ] **Step 4:** `python -m alembic upgrade head` → ok. `python -m alembic check` → `No new upgrade operations detected.` (If the DB already has an earlier draft of `0006` applied: `python -m alembic downgrade 0005 && python -m alembic upgrade head`.)
 
 - [ ] **Step 5:** `python -m pytest packages/core -q` → pass. `python -m pytest -q -W error` → **127 passed**. `ruff` clean, `alembic check` clean.
   `feat(core): linked_teams.reminder_offsets (0006)`
