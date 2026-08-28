@@ -7,11 +7,13 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from fplguru_entrysync import sync_entry
 from fplguru_fdr import compute_fdr
+from pydantic import BaseModel
 from sqlalchemy import desc, distinct, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fplguru_core.db import dispose_engine, get_sessionmaker
 from fplguru_core.models import (
+    Alert,
     DataSyncLog,
     EntryGwHistory,
     EntryPick,
@@ -307,6 +309,68 @@ async def get_entry_history(entry_id: int, db: AsyncSession = Depends(get_db)) -
          "points_on_bench": h.points_on_bench}
         for h in rows
     ]
+
+
+class _SeenBody(BaseModel):
+    ids: list[int] | None = None
+
+
+class _SettingsBody(BaseModel):
+    alert_cap: int | None = None
+
+
+def _alert_json(a: Alert) -> dict:
+    return {
+        "id": a.id, "type": a.type, "gameweek_id": a.gameweek_id,
+        "player_id": a.player_id, "priority": a.priority, "title": a.title,
+        "body": a.body, "payload": a.payload, "suppressed": a.suppressed,
+        "seen": a.seen_at is not None, "created_at": a.updated_at.isoformat(),
+    }
+
+
+@app.get("/entries/{entry_id}/alerts")
+async def entry_alerts(
+    entry_id: int,
+    include_suppressed: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    lt = await _linked_or_404(db, entry_id)
+    q = select(Alert).where(Alert.linked_team_id == lt.id)
+    if not include_suppressed:
+        q = q.where(Alert.suppressed.is_(False))
+    rows = (await db.execute(
+        q.order_by(Alert.priority.desc(), Alert.id.desc())
+    )).scalars().all()
+    unseen = sum(1 for a in rows if a.seen_at is None and not a.suppressed)
+    return {"alerts": [_alert_json(a) for a in rows], "unseen": unseen}
+
+
+@app.post("/entries/{entry_id}/alerts/seen")
+async def mark_alerts_seen(
+    entry_id: int, body: _SeenBody, db: AsyncSession = Depends(get_db)
+) -> dict:
+    lt = await _linked_or_404(db, entry_id)
+    q = select(Alert).where(Alert.linked_team_id == lt.id, Alert.seen_at.is_(None))
+    if body.ids:
+        q = q.where(Alert.id.in_(body.ids))
+    else:
+        q = q.where(Alert.suppressed.is_(False))  # "mark all" == the visible feed
+    rows = (await db.execute(q)).scalars().all()
+    for a in rows:
+        a.seen_at = func.now()
+    await db.commit()
+    return {"marked": len(rows)}
+
+
+@app.patch("/entries/{entry_id}/settings")
+async def patch_entry_settings(
+    entry_id: int, body: _SettingsBody, db: AsyncSession = Depends(get_db)
+) -> dict:
+    lt = await _linked_or_404(db, entry_id)
+    lt.alert_cap = body.alert_cap
+    result = {"fpl_entry_id": lt.fpl_entry_id, "alert_cap": body.alert_cap}
+    await db.commit()
+    return result
 
 
 @app.get("/players/{player_id}/xp")
