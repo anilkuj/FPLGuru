@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 
 from fplguru_core.models import Fixture, Gameweek, Player, PlayerGwPrediction, PlayerGwStat, Team
+from fplguru_ml.model_advanced import AdvancedXP
 from fplguru_ml.model_basic import BasicXP
 from fplguru_worker.xp import compute_and_store_xp
 
@@ -34,6 +35,7 @@ async def test_compute_xp_writes_and_is_idempotent(db_session, monkeypatch, tmp_
     await _seed(db_session)
     BasicXP({}, global_mean=3.0).save(tmp_path)   # empty bundle -> every predict = 3.0
     monkeypatch.setenv("FPLGURU_XP_ARTIFACT_DIR", str(tmp_path))
+    monkeypatch.setenv("FPLGURU_ADV_XP_ARTIFACT_DIR", str(tmp_path / "noadv"))
 
     n1 = await compute_and_store_xp(horizon=1)
     assert n1 == 1
@@ -72,6 +74,7 @@ async def test_compute_xp_cold_starts_thin_history_players(db_session, monkeypat
     await db_session.commit()
     BasicXP({}, global_mean=3.0).save(tmp_path)
     monkeypatch.setenv("FPLGURU_XP_ARTIFACT_DIR", str(tmp_path))
+    monkeypatch.setenv("FPLGURU_ADV_XP_ARTIFACT_DIR", str(tmp_path / "noadv"))
 
     n = await compute_and_store_xp(horizon=1)
     assert n == 1   # thin history -> position-mean cold-start fallback row
@@ -80,3 +83,23 @@ async def test_compute_xp_cold_starts_thin_history_players(db_session, monkeypat
     assert abs(r.xp - BasicXP({}, global_mean=3.0).baseline("MID")) < 1e-9
     assert r.horizon_gw == 1
     assert r.xp_floor < r.xp < r.xp_ceiling
+
+
+async def test_compute_xp_also_writes_adv_rows_when_artifacts_present(
+    db_session, monkeypatch, tmp_path
+):
+    await _seed(db_session)
+    BasicXP({}, global_mean=3.0).save(tmp_path / "basic")
+    # empty AdvancedXP bundle -> every adv predict = the MID baseline, bands mid +/- 2
+    AdvancedXP({}, {}, {}, 3.0, {"MID": 3.5}).save(tmp_path / "adv")
+    monkeypatch.setenv("FPLGURU_XP_ARTIFACT_DIR", str(tmp_path / "basic"))
+    monkeypatch.setenv("FPLGURU_ADV_XP_ARTIFACT_DIR", str(tmp_path / "adv"))
+
+    await compute_and_store_xp(horizon=1)
+
+    rows = (await db_session.execute(select(PlayerGwPrediction))).scalars().all()
+    versions = {r.model_version for r in rows}
+    assert versions == {"basic-v1", "adv-v1"}
+    adv = next(r for r in rows if r.model_version == "adv-v1")
+    assert abs(adv.xp - 3.5) < 1e-9
+    assert 0.0 <= adv.xp_floor <= adv.xp <= adv.xp_ceiling

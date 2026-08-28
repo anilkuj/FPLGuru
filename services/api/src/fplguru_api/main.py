@@ -44,6 +44,21 @@ from fplguru_tools import (
 )
 
 _MODEL_VERSION = "basic-v1"
+_ADV_MODEL_VERSION = "adv-v1"
+
+
+async def _resolve_model_version(db: AsyncSession, model: str = "auto") -> str:
+    """Map a ?model= choice to a stored model_version. ``auto`` prefers the
+    advanced tier when any adv-v1 prediction exists, else falls back to basic."""
+    if model == "basic":
+        return _MODEL_VERSION
+    if model == "advanced":
+        return _ADV_MODEL_VERSION
+    has_adv = (await db.execute(
+        select(PlayerGwPrediction.player_id)
+        .where(PlayerGwPrediction.model_version == _ADV_MODEL_VERSION).limit(1)
+    )).first()
+    return _ADV_MODEL_VERSION if has_adv else _MODEL_VERSION
 
 
 @asynccontextmanager
@@ -204,18 +219,21 @@ async def status(db: AsyncSession = Depends(get_db)) -> dict:
 
 @app.get("/xp")
 async def xp_list(horizon: int = Query(5, ge=1, le=5),
+                  model: str = Query("auto", pattern="^(auto|basic|advanced)$"),
                   db: AsyncSession = Depends(get_db)) -> list[dict]:
+    mv = await _resolve_model_version(db, model)
     rows = (await db.execute(
         select(PlayerGwPrediction, Player)
         .join(Player, Player.id == PlayerGwPrediction.player_id)
-        .where(PlayerGwPrediction.model_version == _MODEL_VERSION,
+        .where(PlayerGwPrediction.model_version == mv,
                PlayerGwPrediction.horizon_gw <= horizon)
     )).all()
     agg: dict[int, dict] = {}
     for pred, player in rows:
         d = agg.setdefault(player.id, {
             "player_id": player.id, "web_name": player.web_name,
-            "position": player.position, "now_cost": player.now_cost, "xp_total": 0.0,
+            "position": player.position, "now_cost": player.now_cost,
+            "xp_total": 0.0, "model": mv,
         })
         d["xp_total"] += pred.xp
     return sorted(agg.values(), key=lambda d: d["xp_total"], reverse=True)
@@ -282,7 +300,9 @@ async def _linked_or_404(db: AsyncSession, entry_id: int) -> LinkedTeam:
 
 
 @app.get("/entries/{entry_id}")
-async def get_entry(entry_id: int, db: AsyncSession = Depends(get_db)) -> dict:
+async def get_entry(entry_id: int,
+                    model: str = Query("auto", pattern="^(auto|basic|advanced)$"),
+                    db: AsyncSession = Depends(get_db)) -> dict:
     lt = await _linked_or_404(db, entry_id)
     latest_pick_gw = (await db.execute(
         select(func.max(EntryPick.gameweek_id)).where(EntryPick.linked_team_id == lt.id)
@@ -292,13 +312,14 @@ async def get_entry(entry_id: int, db: AsyncSession = Depends(get_db)) -> dict:
         .where(EntryPick.linked_team_id == lt.id, EntryPick.gameweek_id == latest_pick_gw)
         .order_by(EntryPick.slot)
     )).all()
+    mv = await _resolve_model_version(db, model)
     xp_by_player: dict[int, float] = {}
     if rows:
         pids = [pl.id for _, pl in rows]
         for pid, total in (await db.execute(
             select(PlayerGwPrediction.player_id, func.sum(PlayerGwPrediction.xp))
             .where(PlayerGwPrediction.player_id.in_(pids),
-                   PlayerGwPrediction.model_version == _MODEL_VERSION)
+                   PlayerGwPrediction.model_version == mv)
             .group_by(PlayerGwPrediction.player_id)
         )).all():
             xp_by_player[pid] = float(total)
@@ -307,6 +328,7 @@ async def get_entry(entry_id: int, db: AsyncSession = Depends(get_db)) -> dict:
         "manager_name": lt.manager_name,
         "last_synced_at": lt.last_synced_at.isoformat() if lt.last_synced_at else None,
         "picks_gameweek_id": latest_pick_gw,
+        "model": mv,
         "picks": [
             {"slot": ep.slot, "player_id": pl.id, "web_name": pl.web_name,
              "position": pl.position, "now_cost": pl.now_cost, "multiplier": ep.multiplier,
@@ -580,7 +602,7 @@ async def entry_captain(entry_id: int, horizon: int = Query(3, ge=1, le=5),
 
     xp_by_player = dict((await db.execute(
         select(PlayerGwPrediction.player_id, func.sum(PlayerGwPrediction.xp))
-        .where(PlayerGwPrediction.model_version == _MODEL_VERSION,
+        .where(PlayerGwPrediction.model_version == await _resolve_model_version(db),
                PlayerGwPrediction.horizon_gw <= horizon)
         .group_by(PlayerGwPrediction.player_id)
     )).all())
@@ -686,7 +708,7 @@ async def overpowered(horizon: int = Query(5, ge=1, le=10),
                       db: AsyncSession = Depends(get_db)) -> dict:
     xp_by_player = dict((await db.execute(
         select(PlayerGwPrediction.player_id, func.sum(PlayerGwPrediction.xp))
-        .where(PlayerGwPrediction.model_version == _MODEL_VERSION,
+        .where(PlayerGwPrediction.model_version == await _resolve_model_version(db),
                PlayerGwPrediction.horizon_gw <= horizon)
         .group_by(PlayerGwPrediction.player_id)
     )).all())
@@ -753,14 +775,16 @@ async def xg_snapshot(last: int = Query(6, ge=1, le=15),
 
 @app.get("/players/{player_id}/xp")
 async def player_xp(player_id: int, horizon: int = Query(5, ge=1, le=5),
+                    model: str = Query("auto", pattern="^(auto|basic|advanced)$"),
                     db: AsyncSession = Depends(get_db)) -> dict:
+    mv = await _resolve_model_version(db, model)
     player = (await db.execute(
         select(Player).where(Player.id == player_id)
     )).scalar_one_or_none()
     preds = (await db.execute(
         select(PlayerGwPrediction)
         .where(PlayerGwPrediction.player_id == player_id,
-               PlayerGwPrediction.model_version == _MODEL_VERSION,
+               PlayerGwPrediction.model_version == mv,
                PlayerGwPrediction.horizon_gw <= horizon)
         .order_by(PlayerGwPrediction.horizon_gw)
     )).scalars().all()
@@ -768,10 +792,13 @@ async def player_xp(player_id: int, horizon: int = Query(5, ge=1, le=5),
         raise HTTPException(status_code=404, detail="no predictions for player")
     return {
         "player_id": player.id, "web_name": player.web_name, "position": player.position,
+        "model": mv,
         "xp_total": float(sum(p.xp for p in preds)),
         "per_gw": [
             {"horizon_gw": p.horizon_gw, "gameweek_id": p.gameweek_id, "xp": p.xp,
-             "floor": p.xp_floor, "ceiling": p.xp_ceiling}
+             "floor": p.xp_floor, "ceiling": p.xp_ceiling,
+             "x_minutes": p.x_minutes, "x_goals": p.x_goals, "x_assists": p.x_assists,
+             "x_cs_or_gc": p.x_cs_or_gc, "x_bonus": p.x_bonus}
             for p in preds
         ],
     }

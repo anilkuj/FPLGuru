@@ -15,4 +15,18 @@ describe("entries api", () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404 }) as unknown as typeof fetch;
     await expect(getEntry("http://api.test", 7)).rejects.toThrow();
   });
+
+  it("getEntry passes ?model= only when not auto", async () => {
+    const f = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ fpl_entry_id: 7, picks: [] }),
+    });
+    global.fetch = f as unknown as typeof fetch;
+
+    await getEntry("http://api.test", 7);
+    expect(String(f.mock.calls[0][0])).toBe("http://api.test/entries/7");
+
+    await getEntry("http://api.test", 7, "basic");
+    expect(String(f.mock.calls[1][0])).toBe("http://api.test/entries/7?model=basic");
+  });
 });

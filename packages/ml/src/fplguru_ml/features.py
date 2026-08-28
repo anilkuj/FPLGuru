@@ -7,6 +7,13 @@ FEATURE_NAMES = [
     "form_goals_5", "form_assists_5", "was_home", "value", "opp_conceded_to_pos_5",
 ]
 
+# Advanced model adds recent expected-goals signal on top of the basic set.
+# `xg_overperf_5` = recent mean of (goals - xg): a finishing-luck / mean-reversion cue.
+ADV_EXTRA_FEATURES = [
+    "form_xg_5", "form_xa_5", "xg_overperf_5", "form_xgc_5", "form_ict_5",
+]
+FEATURE_NAMES_ADV = FEATURE_NAMES + ADV_EXTRA_FEATURES
+
 
 def wmean(vals, n: int) -> float:
     """Recency-weighted mean of the last `n` values (weights 1..len)."""

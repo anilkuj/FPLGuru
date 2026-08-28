@@ -5,7 +5,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from fplguru_ml.features import FEATURE_NAMES
+from fplguru_ml.features import FEATURE_NAMES, FEATURE_NAMES_ADV
+from fplguru_ml.model_advanced import train_advanced
 from fplguru_ml.model_basic import train_basic
 
 
@@ -40,12 +41,21 @@ class BacktestResult:
         return out
 
 
+def _strided_test_gws(frame: pd.DataFrame, min_train_gw: int, gw_stride: int) -> set:
+    eligible = [gw for gw in sorted(frame["gameweek"].unique())
+                if frame[frame["gameweek"] < gw]["gameweek"].nunique() >= min_train_gw]
+    return set(eligible[::max(1, gw_stride)])
+
+
 def walk_forward(frame: pd.DataFrame, *, alpha: float = 1.0,
-                 min_train_gw: int = 5) -> BacktestResult:
+                 min_train_gw: int = 5, gw_stride: int = 1) -> BacktestResult:
     res = BacktestResult()
     if frame.empty:
         return res
+    keep = _strided_test_gws(frame, min_train_gw, gw_stride)
     for test_gw in sorted(frame["gameweek"].unique()):
+        if test_gw not in keep:
+            continue
         train = frame[frame["gameweek"] < test_gw]
         if train.empty or train["gameweek"].nunique() < min_train_gw:
             continue
@@ -58,6 +68,45 @@ def walk_forward(frame: pd.DataFrame, *, alpha: float = 1.0,
         parts = []
         for pos, g in test.groupby("position"):
             preds = model.predict_rows(pos, g[FEATURE_NAMES].to_dict("records"))
+            parts.append(pd.DataFrame({
+                "position": pos,
+                "target": g["target"].to_numpy(float),
+                "pred": preds,
+                "baseline": pos_mean.get(pos, overall_mean),
+            }))
+        res.folds.append(Fold(int(test_gw), int(train["gameweek"].max()),
+                              pd.concat(parts, ignore_index=True)))
+    return res
+
+
+def walk_forward_adv(frame: pd.DataFrame, *, min_train_gw: int = 5,
+                     min_rows: int = 200, gw_stride: int = 1,
+                     **gbrt_kw) -> BacktestResult:
+    """Walk-forward backtest of AdvancedXP. `frame` must carry FEATURE_NAMES_ADV.
+
+    `gw_stride` > 1 evaluates only every Nth eligible test gameweek — the
+    pure-numpy GBRT is slow to refit, and a strided sweep is enough for a
+    directional adv-vs-basic RMSE comparison.
+    """
+    res = BacktestResult()
+    if frame.empty:
+        return res
+    keep = _strided_test_gws(frame, min_train_gw, gw_stride)
+    for test_gw in sorted(frame["gameweek"].unique()):
+        if test_gw not in keep:
+            continue
+        train = frame[frame["gameweek"] < test_gw]
+        if train.empty or train["gameweek"].nunique() < min_train_gw:
+            continue
+        test = frame[frame["gameweek"] == test_gw]
+        if test.empty:
+            continue
+        model = train_advanced(train, min_rows=min_rows, **gbrt_kw)
+        pos_mean = train.groupby("position")["target"].mean().to_dict()
+        overall_mean = float(train["target"].mean())
+        parts = []
+        for pos, g in test.groupby("position"):
+            preds = model.predict_rows(pos, g[FEATURE_NAMES_ADV].to_dict("records"))
             parts.append(pd.DataFrame({
                 "position": pos,
                 "target": g["target"].to_numpy(float),
