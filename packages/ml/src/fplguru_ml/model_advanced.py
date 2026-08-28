@@ -20,12 +20,15 @@ _MIN_ROWS = 200
 
 class AdvancedXP:
     def __init__(self, mean_models, lo_models, hi_models, global_mean,
-                 pos_means=None, version: str = VERSION) -> None:
+                 pos_means=None, version: str = VERSION,
+                 feature_medians=None) -> None:
         self._mean = dict(mean_models)
         self._lo = dict(lo_models)
         self._hi = dict(hi_models)
         self._global_mean = float(global_mean)
         self._pos_means = dict(pos_means or {})
+        self._medians = {k: [float(x) for x in v]
+                         for k, v in (feature_medians or {}).items()}
         self.version = version
         self.feature_names = list(FEATURE_NAMES_ADV)
 
@@ -34,6 +37,32 @@ class AdvancedXP:
 
     def baseline(self, position: str) -> float:
         return float(self._pos_means.get(position, self._global_mean))
+
+    def feature_medians(self) -> dict[str, list[float]]:
+        return {k: list(v) for k, v in self._medians.items()}
+
+    def explain_row(self, position: str, row: dict,
+                    *, top: int = 3) -> list[tuple[str, float]]:
+        """Local occlusion attribution: for each feature, swap in this position's
+        training-set median and measure how the mean prediction moves. A positive
+        delta means the feature's actual value pushed the projection *up*.
+        Returns the `top` features by absolute effect."""
+        m = self._mean.get(position)
+        if m is None:
+            return []
+        base = [float(row[k]) for k in self.feature_names]
+        meds = self._medians.get(position) or base
+        p0 = float(m.predict([base])[0])
+        out: list[tuple[str, float]] = []
+        for i, name in enumerate(self.feature_names):
+            if abs(base[i] - meds[i]) < 1e-12:
+                continue
+            swapped = list(base)
+            swapped[i] = meds[i]
+            delta = p0 - float(m.predict([swapped])[0])
+            out.append((name, round(delta, 4)))
+        out.sort(key=lambda t: abs(t[1]), reverse=True)
+        return out[:top]
 
     def _x(self, rows: list[dict]) -> np.ndarray:
         return np.array([[float(r[k]) for k in self.feature_names] for r in rows], float)
@@ -65,7 +94,7 @@ class AdvancedXP:
         (d / "meta.json").write_text(json.dumps({
             "version": self.version, "global_mean": self._global_mean,
             "feature_names": self.feature_names, "positions": self.positions(),
-            "pos_means": self._pos_means,
+            "pos_means": self._pos_means, "feature_medians": self._medians,
         }))
         for pos in self.positions():
             (d / f"{pos}.mean.json").write_text(self._mean[pos].to_json())
@@ -86,6 +115,7 @@ class AdvancedXP:
             {p: rd(p, "lo") for p in positions},
             {p: rd(p, "hi") for p in positions},
             meta["global_mean"], meta.get("pos_means", {}), meta["version"],
+            meta.get("feature_medians", {}),
         )
 
 
@@ -96,7 +126,7 @@ def train_advanced(frame: pd.DataFrame, *, min_rows: int = _MIN_ROWS,
     kw.update(gbrt_kw)
     if frame.empty:
         return AdvancedXP({}, {}, {}, 0.0, {})
-    mean_m, lo_m, hi_m = {}, {}, {}
+    mean_m, lo_m, hi_m, medians = {}, {}, {}, {}
     for pos, g in frame.groupby("position"):
         if len(g) < min_rows:
             continue
@@ -105,6 +135,8 @@ def train_advanced(frame: pd.DataFrame, *, min_rows: int = _MIN_ROWS,
         mean_m[pos] = GBRT.fit(x, y, loss="l2", **kw)
         lo_m[pos] = GBRT.fit(x, y, loss="quantile", alpha=_LO, **kw)
         hi_m[pos] = GBRT.fit(x, y, loss="quantile", alpha=_HI, **kw)
+        medians[str(pos)] = [float(v) for v in g[FEATURE_NAMES_ADV].median().tolist()]
     pos_means = {str(k): float(v)
                  for k, v in frame.groupby("position")["target"].mean().items()}
-    return AdvancedXP(mean_m, lo_m, hi_m, float(frame["target"].mean()), pos_means)
+    return AdvancedXP(mean_m, lo_m, hi_m, float(frame["target"].mean()), pos_means,
+                      feature_medians=medians)

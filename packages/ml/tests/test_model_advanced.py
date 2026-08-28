@@ -59,3 +59,27 @@ def test_train_advanced_empty_frame():
     model = train_advanced(pd.DataFrame())
     assert model.positions() == []
     assert model.predict_rows("MID", []) == []
+
+
+def test_explain_row_ranks_drivers_by_prediction_delta():
+    frame = _frame()
+    model = train_advanced(frame, min_rows=50, n_estimators=40, seed=1)
+    row = frame[frame.position == "MID"][FEATURE_NAMES_ADV].to_dict("records")[0]
+    drivers = model.explain_row("MID", row, top=3)
+    assert len(drivers) == 3
+    for name, delta in drivers:
+        assert name in FEATURE_NAMES_ADV
+        assert isinstance(delta, float)
+    mags = [abs(d) for _, d in drivers]
+    assert mags == sorted(mags, reverse=True)
+    # unknown position -> no drivers, no crash
+    assert model.explain_row("XXX", row) == []
+
+
+def test_feature_medians_persist(tmp_path):
+    frame = _frame()
+    model = train_advanced(frame, min_rows=50, n_estimators=20, seed=2)
+    model.save(tmp_path / "adv")
+    reloaded = AdvancedXP.load(tmp_path / "adv")
+    assert set(reloaded.feature_medians()) == set(model.positions())
+    assert len(reloaded.feature_medians()["MID"]) == len(FEATURE_NAMES_ADV)
