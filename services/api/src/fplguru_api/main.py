@@ -42,6 +42,7 @@ from fplguru_explain import DRIVER_PHRASES, explanation_prompt, template_explana
 from fplguru_ml.features import wmean
 from fplguru_ml.model_advanced import AdvancedXP
 from fplguru_ml.serving import adv_feature_row
+from fplguru_optimize import best_xi, chip_hints, suggest_transfers
 from fplguru_tools import (
     gw_calendar,
     pick_overpowered_xi,
@@ -726,6 +727,85 @@ async def overpowered(horizon: int = Query(5, ge=1, le=10),
         if pd["player_id"] in xp_by_player
     ]
     return pick_overpowered_xi(players)
+
+
+@app.get("/entries/{entry_id}/optimize")
+async def entry_optimize(entry_id: int, horizon: int = Query(5, ge=1, le=10),
+                         max_transfers: int = Query(2, ge=0, le=3),
+                         free_transfers: int = Query(1, ge=0, le=5),
+                         model: str = Query("advanced",
+                                            pattern="^(auto|basic|advanced)$"),
+                         db: AsyncSession = Depends(get_db)) -> dict:
+    lt = await _linked_or_404(db, entry_id)
+    mv = await _resolve_model_version(db, model)
+    latest_gw = (await db.execute(
+        select(func.max(EntryPick.gameweek_id)).where(EntryPick.linked_team_id == lt.id)
+    )).scalar()
+    squad_rows = (await db.execute(
+        select(Player).join(EntryPick, EntryPick.player_id == Player.id)
+        .where(EntryPick.linked_team_id == lt.id, EntryPick.gameweek_id == latest_gw)
+    )).scalars().all()
+    if not squad_rows:
+        raise HTTPException(status_code=404, detail="no picks for this entry")
+
+    xp_by_player = dict((await db.execute(
+        select(PlayerGwPrediction.player_id, func.sum(PlayerGwPrediction.xp))
+        .where(PlayerGwPrediction.model_version == mv,
+               PlayerGwPrediction.horizon_gw <= horizon)
+        .group_by(PlayerGwPrediction.player_id)
+    )).all())
+    shorts = dict((await db.execute(select(Team.id, Team.short_name))).all())
+
+    def brief(p: Player) -> dict:
+        return {"player_id": p.id, "web_name": p.web_name, "position": p.position,
+                "now_cost": p.now_cost, "team_id": p.team_id,
+                "team_short": shorts.get(p.team_id, ""),
+                "xp": round(float(xp_by_player.get(p.id, 0.0)), 2)}
+
+    squad = [brief(p) for p in squad_rows]
+    squad_ids = {p["player_id"] for p in squad}
+
+    market_players = (await db.execute(
+        select(Player).where(Player.status == "a")
+    )).scalars().all()
+    ranked_market = sorted(
+        (brief(p) for p in market_players
+         if p.id not in squad_ids and p.id in xp_by_player),
+        key=lambda d: -d["xp"],
+    )
+    market: list[dict] = []
+    per_pos: dict[str, int] = {}
+    for m in ranked_market:
+        if per_pos.get(m["position"], 0) >= 40:
+            continue
+        per_pos[m["position"]] = per_pos.get(m["position"], 0) + 1
+        market.append(m)
+
+    bank = (await db.execute(
+        select(EntryGwHistory.bank).where(EntryGwHistory.linked_team_id == lt.id)
+        .order_by(EntryGwHistory.gameweek_id.desc()).limit(1)
+    )).scalar() or 0
+
+    gws = [{"id": g.id} for g in (await db.execute(select(Gameweek))).scalars().all()]
+    fixtures = [
+        {"gameweek_id": f.gameweek_id, "home_team_id": f.home_team_id,
+         "away_team_id": f.away_team_id}
+        for f in (await db.execute(select(Fixture))).scalars().all()
+    ]
+    start = (latest_gw or 1) + 1
+    team_ids = sorted({p["team_id"] for p in squad})
+    cal = gw_calendar(fixtures, gws, from_gw=start, to_gw=start + horizon - 1,
+                      team_ids=team_ids)
+
+    return {
+        "entry_id": entry_id, "horizon": horizon, "model": mv, "bank": int(bank),
+        "current": best_xi(squad, key="xp"),
+        "transfer_plans": suggest_transfers(
+            squad, market, bank=int(bank), free_transfers=free_transfers,
+            max_transfers=max_transfers, key="xp",
+        ),
+        "chips": chip_hints(cal, squad_team_ids=team_ids),
+    }
 
 
 def _xg_row(r: PlayerXg) -> dict:

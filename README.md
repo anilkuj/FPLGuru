@@ -131,6 +131,21 @@ python scripts/backtest_adv_xp.py --csv data/historical/2024-25_merged_gw.csv   
 #   GET /players/{id}/xp/explain?horizon=3&model=advanced  -> drivers + plain-English rationale
 ```
 
+## Optimize My Team
+
+`fplguru-optimize` (pure, no DB) turns a linked squad + Advanced-xP projections into a recommended
+starting XI (formation-aware) + captain/vice + bench order, a **greedy** transfer search that
+maximises XI xP net of the 4-pt hit — respecting £bank, same-position swaps and max-3-per-club —
+and DGW/BGW chip-timing hints. It is greedy, not a global ILP; cross-position transfers,
+price-change modelling and true chip simulation are follow-ups.
+
+```bash
+#   GET /entries/{id}/optimize?horizon=5&max_transfers=2&free_transfers=1&model=advanced
+#     -> { current: {xi, bench, captain, vice, formation, total}, transfer_plans[], chips[] }
+```
+
+The `/optimize` web page renders it with horizon / max-transfers selectors.
+
 ## Fixture difficulty (FDR)
 
 Platform-computed FDR per team — FPL opponent strength tier blended with recent
