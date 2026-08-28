@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a shipped** (PRs #9–#12 merged) + **P1i design overhaul**. **P1i Design System & App Shell built on `feature/p1i-design-system`** (Tasks 1–11 done, Task 12 docs finishing; not yet pushed) — dark tokens, shadcn-style primitives, responsive sidebar shell, recharts, all 8 pages restyled, landing page, + a `fix(api): CORS` so the browser can call the API. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **P2b (Advanced xP) now unblocked.** Also unblocked: P2d optimizer, P2f H2H, P2c (needs P2b).
+**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i shipped** (PRs #9–#13 merged) + **P2b (Advanced xP) built on `feature/p2b-advanced-xp`** (Tasks 1–8 done, code committed, not yet pushed) — pure-numpy per-position GBRT + quantile floor/ceiling bands served as `adv-v1` beside `basic-v1`, `?model=` selector, web squad toggle; adv beats basic RMSE on all 4 positions. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **P2c (LLM Explanation Layer) now unblocked.** Also unblocked: P2d optimizer, P2f H2H.
 **Last updated:** 2026-08-28.
-**Branch:** `feature/p1i-design-system` (off `main`), not pushed. **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000); DB populated (20 teams / 616 players / 2465 predictions).
+**Branch:** `feature/p2b-advanced-xp` (off `main`), not pushed — next: full sweep → review → PR → merge. **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
 
 ---
 
@@ -306,6 +306,33 @@ See `git log feature/p1i-design-system` for exact SHAs.
 **Verification (repo state after Task 11):** web `./node_modules/.bin/next build` → success (11 routes); `./node_modules/.bin/vitest run` → 19 passed; Python `pytest -q -W error` unchanged. Visual: `/`, `/fdr`, `/tools` confirmed rendering real data in the in-app browser. `next-themes` toggle + mobile drawer wired but not screenshot-verified (browser pane not displayed).
 
 **Old files removed:** `src/app/NavAlerts.tsx`, `src/app/leagues/RankSparkline.tsx` (folded into `AppShell` / `Chart`).
+
+**Merged to `main` as PR #13 (`8111fdc`).**
+
+---
+
+## P2b — Advanced xP Engine (branch `feature/p2b-advanced-xp`)
+
+Plan: [`docs/plans/2026-08-28-p2b-advanced-xp.md`](plans/2026-08-28-p2b-advanced-xp.md). Non-linear per-position model + calibrated bands, served alongside Basic as `adv-v1`.
+
+| Task | What | Status |
+|---|---|---|
+| 1 | `fplguru_ml/gbrt.py` — pure-numpy gradient-boosted regression trees (L2 + pinball/quantile loss, greedy variance-reduction splits, `to_json`/`from_json`). **No LightGBM** (SAC blocks native binaries). | ✅ |
+| 2 | `FEATURE_NAMES_ADV` (+5 xG feats) + `frame.build_adv_frame` (shared leak-free loop); `normalize_merged_gw` gains `xgc`/`ict`/`goals_conceded` | ✅ |
+| 3 | `model_advanced.py` — `AdvancedXP` = per-position mean GBRT + lo/hi quantile GBRTs; bands clamped so `floor ≤ mean ≤ ceiling`; save/load mirrors `BasicXP` | ✅ |
+| 4 | `backtest.walk_forward_adv` (+ `gw_stride` for the slow pure-numpy refit) + `scripts/train_adv_xp.py` / `scripts/backtest_adv_xp.py`; trained artifacts committed (`packages/ml/artifacts/advanced/*.json`, ~660 KB, `n_estimators=90 lr=0.07 depth=3`) | ✅ |
+| 5 | worker `compute_xp` writes **both** tiers — `_feature_plan` shared helper, `_adv_feature_row` (xG feats 0.0 until `player_xg` id-mapped), `_component_split` (approximate `x_*`), `FPLGURU_ADV_XP_ARTIFACT_DIR` | ✅ |
+| 6 | API `_resolve_model_version(db, model)` — `?model=auto\|basic\|advanced` on `/xp` + `/players/{id}/xp` (auto = adv when adv rows exist); resolver also threaded through `/entries/{id}`, `/entries/{id}/captain`, `/overpowered` | ✅ |
+| 7 | web: `getEntry(base, id, model)` + `/entries/{id}?model=`; `SquadTable` Advanced/Basic segmented toggle (persisted via `prefs`), live-model badge; `getPrefStr`/`setPrefStr` | ✅ |
+| 8 | docs (README xP section, master plan, this file) | ✅ |
+
+**Backtest** ([`docs/xp-backtest/adv-2026-08-28.md`](xp-backtest/adv-2026-08-28.md), strided walk-forward, 2024-25): **adv-v1 RMSE < basic-v1 RMSE on all 4 positions** — DEF 2.34 vs 2.39, FWD 2.94 vs 3.01, GK 2.52 vs 2.60, MID 2.41 vs 2.43 — **M3 criterion (≥3/4) met.**
+
+**Caveat:** the 5 xG features are 0.0 at serve time until a PitchAPI key + FPL id map populate `player_xg`; `adv-v1` still predicts from the 9 shared FPL features and is live regardless. Artifacts ~660 KB committed.
+
+**Deferred:** real component models (vs the heuristic `x_*` split), SHAP / tree-path attribution (feeds P2c + P4b), isotonic calibration, multi-seed ensemble, full compounding multi-GW rollout.
+
+**Next:** whole-branch review → PR `feature/p2b-advanced-xp` → `main` → then **P2c (LLM Explanation Layer)** is unblocked.
 
 ---
 

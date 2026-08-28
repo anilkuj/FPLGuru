@@ -16,7 +16,7 @@ shell, and a historical-data loader for future xP modelling.
 packages/core         SQLAlchemy models, async DB session, settings, constants
 packages/fpl_client    typed async client for the official FPL API (retry/backoff)
 packages/ingest        pure fetch→row normalizers (FPL bootstrap/fixtures + historical CSV)
-packages/ml            (stub — xP engine lands in a later sub-plan)
+packages/ml            xP engine: ridge (basic-v1) + pure-numpy GBRT (adv-v1), frames, backtest
 services/api           FastAPI: /health /ready /gameweeks /gameweeks/current /status
                        /link/{id} /entries/{id}[/history] /xp /players/{id}/xp /fdr
                        /gameweeks/current/live[/stream]
@@ -90,25 +90,36 @@ python -m pytest -q          # needs Docker Postgres up; ruff runs in CI only
 pnpm --filter web test
 ```
 
-## xP model (Basic tier)
+## xP model (Basic + Advanced tiers)
 
-Transparent per-position ridge model (no scikit-learn), FPL-data-only leak-safe features
-(rolling form, minutes reliability, home/away, price, opponent points-conceded-to-position).
-Component breakdown and a non-linear model come with the Advanced tier (sub-plan P2b).
+**Basic (`basic-v1`)** — transparent per-position ridge model (no scikit-learn), FPL-data-only
+leak-safe features (rolling form, minutes reliability, home/away, price,
+opponent points-conceded-to-position).
+
+**Advanced (`adv-v1`)** — per-position **gradient-boosted regression trees** (hand-rolled pure
+numpy — Smart App Control blocks LightGBM's native binaries), plus two quantile GBRTs per position
+for a calibrated floor/ceiling band, and an approximate `x_*` component split for the UI. It adds
+five expected-goals features (`form_xg_5`, `form_xa_5`, `xg_overperf_5`, `form_xgc_5`,
+`form_ict_5`). Those are trained from the historical `merged_gw` CSVs but are **0.0 at serve time
+until a PitchAPI key populates `player_xg` with an FPL id mapping** — the GBRT then still predicts
+from the nine shared FPL features, so `adv-v1` is live regardless.
 
 ```bash
 # one-time: pull historical data (gitignored)
 python scripts/fetch_historical.py 2022-23 2023-24 2024-25
 
-# train  ->  packages/ml/artifacts/basic/*.json   (small; committed)
-python scripts/train_xp.py --csv data/historical/*_merged_gw.csv --out packages/ml/artifacts/basic
+# train  ->  packages/ml/artifacts/{basic,advanced}/*.json   (committed)
+python scripts/train_xp.py     --csv data/historical/*_merged_gw.csv --out packages/ml/artifacts/basic
+python scripts/train_adv_xp.py --csv data/historical/*_merged_gw.csv --out packages/ml/artifacts/advanced
 
-# walk-forward backtest  ->  docs/xp-backtest/<date>.md
-python scripts/backtest_xp.py --csv data/historical/2024-25_merged_gw.csv
+# walk-forward backtest  ->  docs/xp-backtest/<date>.md  /  adv-<date>.md
+python scripts/backtest_xp.py     --csv data/historical/2024-25_merged_gw.csv
+python scripts/backtest_adv_xp.py --csv data/historical/2024-25_merged_gw.csv   # adv vs basic RMSE
 
-# serve: the worker's compute_xp task fills player_gw_predictions hourly.
-#   GET /xp?horizon=5              -> all players, ranked by cumulative xP
-#   GET /players/{id}/xp?horizon=5 -> per-gameweek breakdown + floor/ceiling
+# serve: the worker's compute_xp task fills player_gw_predictions hourly for BOTH tiers.
+#   GET /xp?horizon=5&model=auto|basic|advanced   -> ranked by cumulative xP (auto = adv if present)
+#   GET /players/{id}/xp?horizon=5&model=...       -> per-gameweek breakdown + floor/ceiling + x_*
+#   GET /entries/{id}?model=...                    -> squad with per-model xP (web has a toggle)
 ```
 
 ## Fixture difficulty (FDR)
@@ -241,8 +252,10 @@ box). With no key configured, `deliver_push` is a logged no-op and the in-app fe
 # generate a VAPID keypair:  npx web-push generate-vapid-keys
 ```
 
-Latest backtest: [`docs/xp-backtest/2026-08-27.md`](docs/xp-backtest/2026-08-27.md) — all four
-position groups beat the naive-mean baseline.
+Latest backtests: [`docs/xp-backtest/2026-08-27.md`](docs/xp-backtest/2026-08-27.md) (Basic — all
+four position groups beat the naive-mean baseline) and
+[`docs/xp-backtest/adv-2026-08-28.md`](docs/xp-backtest/adv-2026-08-28.md) (Advanced — lower RMSE
+than Basic on all four position groups).
 
 ## Data sources
 
