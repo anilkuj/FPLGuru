@@ -16,15 +16,18 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui";
+import { EmptyState } from "@/components/EmptyState";
 import {
   type CalendarWeek,
   getCalendar,
   getOverpowered,
   getTemplate,
+  getTransparency,
   getTrends,
   getXgSnapshot,
   type OverpoweredXI,
   type TemplateXI,
+  type Transparency,
   type Trends,
   type XgSnapshot,
 } from "@/lib/api";
@@ -56,6 +59,7 @@ export function ToolsHub() {
   const [op, setOp] = useState<OverpoweredXI | null>(null);
   const [xg, setXg] = useState<XgSnapshot | null>(null);
   const [xgPos, setXgPos] = useState("");
+  const [tr, setTr] = useState<Transparency | null>(null);
   const [horizon, setHorizon] = useState(5);
   const [from, setFrom] = useState(1);
   const [to, setTo] = useState(8);
@@ -76,6 +80,9 @@ export function ToolsHub() {
     if (tab === "xg")
       getXgSnapshot(API, 6, xgPos || undefined).then(setXg).catch(() => undefined);
   }, [tab, xgPos]);
+  useEffect(() => {
+    if (tab === "model" && !tr) getTransparency(API, 6).then(setTr).catch(() => undefined);
+  }, [tab, tr]);
 
   return (
     <Tabs value={tab} onValueChange={setTab}>
@@ -85,6 +92,7 @@ export function ToolsHub() {
         <TabsTrigger value="calendar">Calendar</TabsTrigger>
         <TabsTrigger value="op">Overpowered XI</TabsTrigger>
         <TabsTrigger value="xg">xG</TabsTrigger>
+        <TabsTrigger value="model">Model</TabsTrigger>
       </TabsList>
 
       <TabsContent value="trends">
@@ -235,6 +243,130 @@ export function ToolsHub() {
           />
         </Card>
       </TabsContent>
+
+      <TabsContent value="model">
+        <ModelTab tr={tr} />
+      </TabsContent>
     </Tabs>
+  );
+}
+
+const POS_ROWS = ["GK", "DEF", "MID", "FWD", "ALL"];
+
+function MetricTable({
+  title,
+  data,
+}: {
+  title: string;
+  data: Record<string, { n: number; mae: number; rmse: number; bias: number }>;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <table className="w-full text-sm">
+          <thead className="text-fg-muted">
+            <tr>
+              <th className="text-left font-medium">Pos</th>
+              <th className="text-right font-medium">n</th>
+              <th className="text-right font-medium">MAE</th>
+              <th className="text-right font-medium">RMSE</th>
+              <th className="text-right font-medium">bias</th>
+            </tr>
+          </thead>
+          <tbody>
+            {POS_ROWS.map((p) => {
+              const m = data[p];
+              return (
+                <tr key={p} className={p === "ALL" ? "font-semibold" : undefined}>
+                  <td>{p}</td>
+                  <td className="text-right">{m?.n ?? 0}</td>
+                  <td className="text-right">{m ? m.mae.toFixed(2) : "—"}</td>
+                  <td className="text-right">{m ? m.rmse.toFixed(2) : "—"}</td>
+                  <td className="text-right">{m ? m.bias.toFixed(2) : "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ModelTab({ tr }: { tr: Transparency | null }) {
+  if (!tr) return null;
+  const hasData =
+    tr.last_gw != null ||
+    tr.models.some((m) => (tr.by_position[m]?.ALL?.n ?? 0) > 0);
+  if (!hasData)
+    return (
+      <EmptyState
+        title="No finished gameweeks with predictions yet"
+        hint="Accuracy shows up here after the first gameweek completes."
+      />
+    );
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        {tr.models.map((m) => (
+          <MetricTable key={m} title={`${m} — overall`} data={tr.by_position[m] ?? {}} />
+        ))}
+        {tr.models.map((m) => (
+          <MetricTable
+            key={`${m}-roll`}
+            title={`${m} — last ${tr.rolling_window} GW`}
+            data={tr.rolling[m] ?? {}}
+          />
+        ))}
+      </div>
+
+      {tr.last_gw && (
+        <Card className="p-1.5">
+          <div className="px-2 py-1.5 text-sm font-semibold">
+            GW{tr.last_gw.gameweek_id} — projection vs actual
+          </div>
+          <DataTable
+            rows={tr.last_gw.rows}
+            rowKey={(r) => `${r.player_id}-${r.model}`}
+            initialSort={{ key: "delta", dir: "desc" }}
+            emptyTitle="No rows"
+            columns={[
+              { key: "web_name", header: "Player", className: "font-medium" },
+              { key: "position", header: "Pos", className: "text-fg-muted" },
+              { key: "model", header: "Model", className: "text-fg-muted" },
+              {
+                key: "predicted",
+                header: "Proj",
+                align: "right",
+                sortable: true,
+                render: (r) => r.predicted.toFixed(1),
+              },
+              {
+                key: "actual",
+                header: "Actual",
+                align: "right",
+                sortable: true,
+                render: (r) => r.actual.toFixed(0),
+              },
+              {
+                key: "delta",
+                header: "Δ",
+                align: "right",
+                sortable: true,
+                render: (r) => (
+                  <Badge variant={r.delta >= 0 ? "positive" : "danger"}>
+                    {r.delta >= 0 ? "+" : ""}
+                    {r.delta.toFixed(1)}
+                  </Badge>
+                ),
+              },
+            ]}
+          />
+        </Card>
+      )}
+    </div>
   );
 }
