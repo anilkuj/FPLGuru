@@ -55,6 +55,44 @@ export function getEntry(base: string, id: number, model: XpModel = "auto") {
   return fetch(`${base}/entries/${id}${q}`, { cache: "no-store" }).then(asJson<Entry>);
 }
 
+export type OptPlayer = {
+  player_id: number;
+  web_name: string;
+  position: string;
+  now_cost: number;
+  team_short: string;
+  xp: number;
+};
+export type TransferPlan = {
+  transfers: { out: OptPlayer; in: OptPlayer }[];
+  gain: number;
+  hit: number;
+  net: number;
+};
+export type ChipHint = { chip: string; gameweek_id: number; reason: string };
+export type Optimize = {
+  entry_id: number;
+  horizon: number;
+  model: string;
+  bank: number;
+  current: {
+    formation: string;
+    total: number;
+    xi: OptPlayer[];
+    bench: OptPlayer[];
+    captain: OptPlayer | null;
+    vice: OptPlayer | null;
+  };
+  transfer_plans: TransferPlan[];
+  chips: ChipHint[];
+};
+export function getOptimize(base: string, entryId: number, horizon = 5, maxTransfers = 2) {
+  return fetch(
+    `${base}/entries/${entryId}/optimize?horizon=${horizon}&max_transfers=${maxTransfers}`,
+    { cache: "no-store" },
+  ).then(asJson<Optimize>);
+}
+
 export type XpDriver = { feature: string; phrase: string; direction: "up" | "down" };
 export type XpExplain = {
   player_id: number;
