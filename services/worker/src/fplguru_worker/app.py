@@ -17,6 +17,7 @@ celery_app.conf.update(
         "sync-linked-teams": {"task": "sync_linked_teams", "schedule": 3600.0},
         "poll-live": {"task": "poll_live", "schedule": settings.live_poll_seconds},
         "generate-alerts": {"task": "generate_alerts", "schedule": 1800.0},
+        "deliver-push": {"task": "deliver_push", "schedule": 60.0},
     },
 )
 
