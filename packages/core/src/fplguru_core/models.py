@@ -273,3 +273,36 @@ class PushSubscription(_TimestampMixin, Base):
     endpoint: Mapped[str] = mapped_column(String(512))
     p256dh: Mapped[str] = mapped_column(String(255))
     auth: Mapped[str] = mapped_column(String(255))
+
+
+class LinkedTeamLeague(_TimestampMixin, Base):
+    """A classic mini-league a linked team belongs to (from the entry profile)."""
+    __tablename__ = "linked_team_leagues"
+    __table_args__ = (
+        UniqueConstraint("linked_team_id", "league_id",
+                         name="uq_linked_team_leagues_linked_team_id_league_id"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    linked_team_id: Mapped[int] = mapped_column(ForeignKey("linked_teams.id"), index=True)
+    league_id: Mapped[int] = mapped_column(Integer, index=True)
+    league_name: Mapped[str] = mapped_column(String(128), default="")
+    entry_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    entry_last_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class LeagueStanding(_TimestampMixin, Base):
+    """A row of a classic-league standings page (top slice), refreshed by a worker task."""
+    __tablename__ = "league_standings"
+    __table_args__ = (
+        UniqueConstraint("league_id", "entry_id",
+                         name="uq_league_standings_league_id_entry_id"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    league_id: Mapped[int] = mapped_column(Integer, index=True)
+    entry_id: Mapped[int] = mapped_column(Integer, index=True)
+    entry_name: Mapped[str] = mapped_column(String(128), default="")
+    player_name: Mapped[str] = mapped_column(String(128), default="")
+    rank: Mapped[int] = mapped_column(Integer)
+    last_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total: Mapped[int] = mapped_column(Integer, default=0)
+    event_total: Mapped[int] = mapped_column(Integer, default=0)
