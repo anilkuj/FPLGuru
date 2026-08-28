@@ -2,20 +2,14 @@
 
 import { useEffect, useState } from "react";
 
+import { DataTable } from "@/components/DataTable";
+import { Delta } from "@/components/Delta";
+import { PageHeader } from "@/components/PageHeader";
+import { Card, Input } from "@/components/ui";
 import { getLeagueStandings, searchLeague, type StandingRow } from "@/lib/api";
 
 const API = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
-
 type SearchHit = Pick<StandingRow, "entry_id" | "entry_name" | "player_name" | "rank" | "total">;
-
-function Delta({ d }: { d: number | null }) {
-  if (d == null || d === 0) return <span className="text-gray-400">–</span>;
-  return d > 0 ? (
-    <span className="text-emerald-500">▲{d}</span>
-  ) : (
-    <span className="text-red-500">▼{Math.abs(d)}</span>
-  );
-}
 
 export function StandingsView({ leagueId }: { leagueId: number }) {
   const [rows, setRows] = useState<StandingRow[]>([]);
@@ -34,63 +28,65 @@ export function StandingsView({ leagueId }: { leagueId: number }) {
       setHits([]);
       return;
     }
-    const t = setTimeout(() => {
-      searchLeague(API, leagueId, q.trim()).then(setHits).catch(() => setHits([]));
-    }, 250);
+    const t = setTimeout(
+      () => searchLeague(API, leagueId, q.trim()).then(setHits).catch(() => setHits([])),
+      250,
+    );
     return () => clearTimeout(t);
   }, [q, leagueId]);
 
   return (
     <>
-      <input
-        className="mt-3 w-64 rounded border px-2 py-1 text-sm"
-        placeholder="Search manager or team…"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
+      <PageHeader
+        title="League standings"
+        actions={
+          <Input
+            className="w-56"
+            placeholder="Search manager or team…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        }
       />
+
       {hits.length > 0 && (
-        <ul className="mt-2 text-sm">
+        <Card className="mb-3 p-3 text-sm">
           {hits.map((h) => (
-            <li key={h.entry_id} className="text-gray-600">
+            <div key={h.entry_id} className="text-fg-muted">
               #{h.rank.toLocaleString()} — {h.entry_name} ({h.player_name}) · {h.total} pts
-            </li>
+            </div>
           ))}
-        </ul>
+        </Card>
       )}
-      {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
-      <div className="mt-4 overflow-x-auto">
-        <table className="text-sm border-collapse">
-          <thead>
-            <tr className="text-left">
-              <th className="px-2 py-1 text-right">#</th>
-              <th className="px-2 py-1">Δ</th>
-              <th className="px-2 py-1">Manager</th>
-              <th className="px-2 py-1">Team</th>
-              <th className="px-2 py-1 text-right">GW</th>
-              <th className="px-2 py-1 text-right">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.entry_id} className="border-t">
-                <td className="px-2 py-1 text-right">{r.rank.toLocaleString()}</td>
-                <td className="px-2 py-1">
-                  <Delta d={r.delta} />
-                </td>
-                <td className="px-2 py-1">{r.player_name}</td>
-                <td className="px-2 py-1 font-medium">{r.entry_name}</td>
-                <td className="px-2 py-1 text-right">{r.event_total}</td>
-                <td className="px-2 py-1 text-right font-semibold">{r.total}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {rows.length === 0 && !err && (
-        <p className="mt-3 text-sm text-gray-500">
-          Standings not synced yet — check back after the next refresh.
-        </p>
-      )}
+      {err && <p className="text-sm text-danger">{err}</p>}
+
+      <Card className="p-1.5">
+        <DataTable
+          rows={rows}
+          rowKey={(r) => r.entry_id}
+          initialSort={{ key: "rank", dir: "asc" }}
+          emptyTitle="Standings not synced yet"
+          emptyHint="The sync_league_standings task refreshes the top slice every 2 hours."
+          columns={[
+            { key: "rank", header: "#", align: "right", sortable: true, className: "tabular-nums" },
+            {
+              key: "delta",
+              header: "Δ",
+              render: (r) => <Delta value={r.delta} invert />,
+            },
+            { key: "player_name", header: "Manager" },
+            { key: "entry_name", header: "Team", className: "font-medium" },
+            { key: "event_total", header: "GW", align: "right", sortable: true },
+            {
+              key: "total",
+              header: "Total",
+              align: "right",
+              sortable: true,
+              className: "font-semibold",
+            },
+          ]}
+        />
+      </Card>
     </>
   );
 }
