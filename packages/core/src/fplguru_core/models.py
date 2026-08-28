@@ -196,6 +196,7 @@ class LinkedTeam(_TimestampMixin, Base):
     started_event: Mapped[int | None] = mapped_column(Integer, nullable=True)
     favourite_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    alert_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = uncapped
 
 
 class EntryGwHistory(_TimestampMixin, Base):
@@ -231,3 +232,24 @@ class EntryPick(_TimestampMixin, Base):
     multiplier: Mapped[int] = mapped_column(Integer, default=1)
     is_captain: Mapped[bool] = mapped_column(Boolean, default=False)
     is_vice: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class Alert(_TimestampMixin, Base):
+    """A ranked, de-duplicated notification for one linked team."""
+    __tablename__ = "alerts"
+    __table_args__ = (
+        UniqueConstraint("linked_team_id", "dedup_key",
+                         name="uq_alerts_linked_team_id_dedup_key"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    linked_team_id: Mapped[int] = mapped_column(ForeignKey("linked_teams.id"), index=True)
+    gameweek_id: Mapped[int] = mapped_column(ForeignKey("gameweeks.id"), index=True)
+    type: Mapped[str] = mapped_column(String(24))              # availability | dgw | bgw
+    dedup_key: Mapped[str] = mapped_column(String(128))
+    player_id: Mapped[int | None] = mapped_column(ForeignKey("players.id"), nullable=True)
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+    title: Mapped[str] = mapped_column(String(160))
+    body: Mapped[str] = mapped_column(String, default="", server_default="")
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    suppressed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
