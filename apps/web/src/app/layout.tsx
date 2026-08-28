@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
+import { NavAlerts } from "./NavAlerts";
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -31,6 +33,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <span className="text-gray-400">xP</span>
           <a href="/fdr">FDR</a>
           <a href="/live">Live</a>
+          <NavAlerts />
         </nav>
         {children}
       </body>

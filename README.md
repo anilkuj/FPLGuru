@@ -20,6 +20,7 @@ packages/ml            (stub — xP engine lands in a later sub-plan)
 services/api           FastAPI: /health /ready /gameweeks /gameweeks/current /status
                        /link/{id} /entries/{id}[/history] /xp /players/{id}/xp /fdr
                        /gameweeks/current/live[/stream]
+                       /entries/{id}/alerts /entries/{id}/alerts/seen /entries/{id}/settings
 services/worker        Celery worker + Beat: sync_bootstrap / sync_fixtures / sync_gw_stats
                        / compute_xp / sync_linked_teams / poll_live
 apps/web               Next.js 16 (App Router) PWA shell
@@ -135,6 +136,24 @@ and upserts `player_gw_live`. The web `/live` page subscribes over SSE and falls
 `poll_live` is a no-op (with an `ok` audit row) when no fixture is in play. Bonus is a live
 projection until fixtures are final; finished-GW scoring is served from `player_gw_stats`
 (the xP / actuals path), not this table.
+
+## Alerts
+
+A `generate_alerts` worker task (Beat, 30 min) builds a ranked, de-duplicated feed per
+linked team: player availability changes (`status` / `chance_of_playing` / `news`) and
+blank/double gameweeks for teams you own. The priority score is documented in
+[`docs/design/2026-08-27-alert-priority-ranking.md`](docs/design/2026-08-27-alert-priority-ranking.md).
+`linked_teams.alert_cap` (default `NULL` = uncapped) suppresses the lowest-priority alerts
+beyond the cap — they stay stored, hidden unless you ask for them. Web Push delivery lands
+with the PWA work (P1h); today the feed is in-app only.
+
+```bash
+#   GET   /entries/{id}/alerts[?include_suppressed=true]
+#   POST  /entries/{id}/alerts/seen     {ids?: number[]}   # omit ids -> mark the visible feed
+#   PATCH /entries/{id}/settings        {alert_cap: number | null}
+```
+
+`price_change` and `fdr_shift` generators need historical snapshots and are follow-ups.
 
 Latest backtest: [`docs/xp-backtest/2026-08-27.md`](docs/xp-backtest/2026-08-27.md) — all four
 position groups beat the naive-mean baseline.
