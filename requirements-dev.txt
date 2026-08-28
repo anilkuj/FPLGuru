@@ -12,6 +12,7 @@
 -e ./packages/captain
 -e ./packages/explain
 -e ./packages/optimize
+-e ./packages/h2h
 -e ./packages/pitch
 -e ./packages/pitchmatch
 -e ./services/api
