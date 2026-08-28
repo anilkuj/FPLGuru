@@ -175,6 +175,23 @@ every manager is in; a dedicated global top-N crawl is a follow-up.
 #   GET /entries/{id}/rank-history            -> per-GW overall rank series
 ```
 
+## Tools
+
+Four analysis tools off the data already synced (the `players` table now also carries
+`transfers_in_event` / `transfers_out_event` / `cost_change_event` / `form` from the bootstrap
+sync):
+
+```bash
+#   GET /trends[?limit=10]              -> transfers in/out, price risers/fallers, most owned
+#   GET /template                      -> the most-owned valid XI + combined ownership
+#   GET /entries/{id}/template-diff    -> your squad vs the template (overlap + differentials)
+#   GET /calendar?from_gw=&to_gw=      -> per-GW blank/double flags per team
+#   GET /overpowered[?horizon=5]       -> best XI by cumulative Basic-xP over the horizon
+```
+
+The FDR/xG/CS Snapshot tool lands with **P2a** (PitchAPI xG ingestion) — FDR alone is already at
+`GET /fdr`. `pick_overpowered_xi` / the template ignore the £100m budget + max-3-per-club for now.
+
 ## PWA
 
 The web app is installable (`manifest.json` + `public/sw.js`): the service worker precaches the

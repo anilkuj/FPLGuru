@@ -30,6 +30,13 @@ from fplguru_core.models import (
     Team,
 )
 from fplguru_core.settings import get_settings
+from fplguru_tools import (
+    gw_calendar,
+    pick_overpowered_xi,
+    template_diff,
+    template_xi,
+    trends,
+)
 
 _MODEL_VERSION = "basic-v1"
 
@@ -520,6 +527,78 @@ async def entry_rank_history(entry_id: int, db: AsyncSession = Depends(get_db)) 
          "points": r.points, "total_points": r.total_points}
         for r in rows
     ]
+
+
+def _player_dicts(rows: list[Player]) -> list[dict]:
+    return [
+        {"player_id": p.id, "web_name": p.web_name, "position": p.position,
+         "team_id": p.team_id, "now_cost": p.now_cost,
+         "selected_by_percent": p.selected_by_percent,
+         "transfers_in_event": p.transfers_in_event,
+         "transfers_out_event": p.transfers_out_event,
+         "cost_change_event": p.cost_change_event}
+        for p in rows
+    ]
+
+
+@app.get("/trends")
+async def gw_trends(limit: int = Query(10, ge=1, le=50),
+                    db: AsyncSession = Depends(get_db)) -> dict:
+    rows = (await db.execute(select(Player))).scalars().all()
+    return trends(_player_dicts(rows), limit=limit)
+
+
+@app.get("/template")
+async def template(db: AsyncSession = Depends(get_db)) -> dict:
+    rows = (await db.execute(select(Player))).scalars().all()
+    return template_xi(_player_dicts(rows))
+
+
+@app.get("/entries/{entry_id}/template-diff")
+async def template_diff_for_entry(entry_id: int,
+                                  db: AsyncSession = Depends(get_db)) -> dict:
+    lt = await _linked_or_404(db, entry_id)
+    tmpl = template_xi(_player_dicts((await db.execute(select(Player))).scalars().all()))
+    pick_gw = (await db.execute(
+        select(func.max(EntryPick.gameweek_id)).where(EntryPick.linked_team_id == lt.id)
+    )).scalar()
+    picks = (await db.execute(
+        select(EntryPick.player_id).where(EntryPick.linked_team_id == lt.id,
+                                          EntryPick.gameweek_id == pick_gw)
+    )).scalars().all()
+    return {"template": tmpl, **template_diff([{"player_id": p} for p in picks], tmpl)}
+
+
+@app.get("/calendar")
+async def calendar(from_gw: int = Query(..., ge=1, le=38),
+                   to_gw: int = Query(..., ge=1, le=38),
+                   db: AsyncSession = Depends(get_db)) -> list[dict]:
+    team_ids = [t for (t,) in (await db.execute(select(Team.id))).all()]
+    fixtures = [
+        {"gameweek_id": f.gameweek_id, "home_team_id": f.home_team_id,
+         "away_team_id": f.away_team_id}
+        for f in (await db.execute(select(Fixture))).scalars().all()
+    ]
+    gws = [{"id": g.id} for g in (await db.execute(select(Gameweek))).scalars().all()]
+    return gw_calendar(fixtures, gws, from_gw=from_gw, to_gw=to_gw, team_ids=team_ids)
+
+
+@app.get("/overpowered")
+async def overpowered(horizon: int = Query(5, ge=1, le=10),
+                      db: AsyncSession = Depends(get_db)) -> dict:
+    xp_by_player = dict((await db.execute(
+        select(PlayerGwPrediction.player_id, func.sum(PlayerGwPrediction.xp))
+        .where(PlayerGwPrediction.model_version == _MODEL_VERSION,
+               PlayerGwPrediction.horizon_gw <= horizon)
+        .group_by(PlayerGwPrediction.player_id)
+    )).all())
+    rows = (await db.execute(select(Player))).scalars().all()
+    players = [
+        {**pd, "xp": float(xp_by_player.get(pd["player_id"], 0.0))}
+        for pd in _player_dicts(rows)
+        if pd["player_id"] in xp_by_player
+    ]
+    return pick_overpowered_xi(players)
 
 
 @app.get("/players/{player_id}/xp")

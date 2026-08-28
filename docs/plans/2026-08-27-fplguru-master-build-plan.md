@@ -11,7 +11,7 @@
 > - Every feature marked "Pro" is just a feature, available to everyone. Horizon selectors expose the full 1–10 range to all users. Alert message caps become a user-configurable setting (default: uncapped).
 > - **P1a-auth** (accounts) is now *optional* — only for cross-device sync / saved preferences, and blocks nothing.
 > - Milestones M2/M3 drop their "Stripe in test mode" / "flip Stripe to live" criteria.
-> Remaining sub-plans after this override: **11** (F + all of Phase 1 + **P2h** done; P1g + P4c dropped). Phase 1 complete; Phase 2 started with the unblocked P2h. Still blocked on external decisions: xG source (P2a → P2b), LLM provider + budget (P2c/P2e/P3a-c), Telegram token (P2g). Unblocked next: P2i (Free Tools), P2d basic optimizer.
+> Remaining sub-plans after this override: **10** (F + all of Phase 1 + **P2h** + **P2i** done; P1g + P4c dropped). **xG source now decided → PitchAPI**, so P2a is unblocked. Still blocked: LLM provider + budget (P2c/P2e/P3a-c), Telegram token (P2g). Unblocked next: **P2a** (PitchAPI ingestion), P2d optimizer, P2f H2H.
 
 **Source of truth:** `PRD.md` (the document this plan is derived from). Section references below (`§5.3` etc.) point at that PRD.
 
@@ -115,7 +115,7 @@ Each sub-plan produces **working, testable software on its own** and has its own
 
 | # | Sub-plan | Delivers | Depends on | PRD refs |
 |---|---|---|---|---|
-| **P2a** | xG/xA Ingestion (Understat) | Understat player + team xG/xA ingested and **mapped to FPL player IDs** (fuzzy name+team+DOB matching with a manual override table), historical backfill, fragility monitor (alert on scrape-shape change). | F | §5.3, §5.6, §10.1 |
+| **P2a** | xG/xA Ingestion — **source decided 2026-08-27: [PitchAPI](https://pitchapi.dev)** (`X-API-KEY`, base `https://api.pitchapi.dev/v1`; match-centric `/matches/{id}/shots` + `/advanced/players`; opaque `p_` player ids → needs fuzzy name+team FPL mapping + manual override table). Key in `FPLGURU_PITCHAPI_KEY` env, never committed. Historical backfill + fragility monitor (429 / shape-change). | F | §5.3, §5.6, §10.1 |
 | **P2b** | Advanced xP Engine | LightGBM ensemble, one model per position group, full multi-GW iterative rollout (compounding rotation + fixture swings), quantile-regression floor/ceiling bands, isotonic calibration, SHAP contributions surfaced. | P1c, P2a | §5.2 (Advanced), §5.4, §5.5 |
 | **P2c** | LLM Explanation Layer | Turns Advanced model output + top SHAP features into plain-English rationale. Pro-gated. | P2b, P1g | §5.4, §5.2 |
 | **P2d** | Optimize My Team | Suggested transfers in/out, captain/vice, bench order, chip-timing window flags; horizon selector (1–5 all, 10 Pro); persisted preference. Basic algo (Free) vs advanced xP + rationale (Pro). | P1c (Free), P2b/P2c (Pro), P1g | §4.5 |
@@ -123,7 +123,7 @@ Each sub-plan produces **working, testable software on its own** and has its own
 | **P2f** | H2H Match Helper | Opponent squad profiling, squad-vs-squad view, strategy suggestion. Pro-gated. | P1a, P2b, P1g | §4.12 |
 | **P2g** | Telegram Bot + Pull Commands | `/myteam` `/fdr` `/captain` `/live`; Free 2/day, Pro unlimited; alert push channel. | P1e, P1a | §4.9, §4.3 |
 | **P2h** ✅ | Community Leaderboard — *done* ([`2026-08-27-p2h-community-leaderboard.md`](2026-08-27-p2h-community-leaderboard.md), branch `feature/p2h-leaderboard`) | `sync_entry` captures classic mini-leagues → `linked_team_leagues`; `sync_league_standings` Beat task (2h) refreshes each tracked league's top slice → `league_standings` (`0008`); `GET /entries/{id}/leagues` (rank + weekly delta), `GET /leagues/{id}/standings`, `GET /leagues/{id}/search?q=`, `GET /entries/{id}/rank-history`; Next.js `/leagues` board + `/leagues/[id]` standings/search + SVG rank sparkline. "Global" = the Overall league (314); a bespoke global top-N crawl + standings pagination + H2H leagues are follow-ups. | P1a | §4.8 |
-| **P2i** | Free Tools Suite | GW Trends, Template Analyser, DGW/BGW Calendar, Overpowered 11, FDR/xG/CS Snapshot. | F, P1c, P2a | §4.10 |
+| **P2i** ✅ | Free Tools Suite — *done* ([`2026-08-27-p2i-free-tools.md`](2026-08-27-p2i-free-tools.md), branch `feature/p2i-free-tools`) | `fplguru-tools` pkg (`trends`, `template_xi`, `template_diff`, `gw_calendar`, `pick_overpowered_xi`); `players` gains transfer/price/form cols (`0009`); `GET /trends`, `/template`, `/entries/{id}/template-diff`, `/calendar?from_gw=&to_gw=`, `/overpowered?horizon=`; Next.js `/tools` tabbed hub. **FDR/xG/CS Snapshot deferred to P2a.** Budget + max-3-per-club constraints on the XI pickers are follow-ups. | F, P1c, ~~P2a~~ | §4.10 |
 
 ### Phase 3 — Content & Ecosystem
 

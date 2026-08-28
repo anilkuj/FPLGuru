@@ -57,6 +57,10 @@ def normalize_players(bootstrap: dict[str, Any]) -> list[dict]:
             "news": el.get("news", ""),
             "selected_by_percent": float(el["selected_by_percent"]),
             "total_points": el["total_points"],
+            "transfers_in_event": el.get("transfers_in_event", 0),
+            "transfers_out_event": el.get("transfers_out_event", 0),
+            "cost_change_event": el.get("cost_change_event", 0),
+            "form": float(el.get("form") or 0.0),
         }
         for el in bootstrap["elements"]
     ]

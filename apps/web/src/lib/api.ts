@@ -218,3 +218,59 @@ export function getRankHistory(base: string, entryId: number) {
     asJson<RankPoint[]>,
   );
 }
+
+export type TrendRow = { player_id: number; web_name: string; position: string; value: number };
+export type Trends = {
+  transfers_in: TrendRow[];
+  transfers_out: TrendRow[];
+  price_risers: TrendRow[];
+  price_fallers: TrendRow[];
+  most_owned: TrendRow[];
+};
+export type TemplatePlayer = {
+  player_id: number;
+  web_name: string;
+  position: string;
+  selected_by_percent: number;
+};
+export type TemplateXI = {
+  formation: string;
+  template_ownership: number;
+  xi: TemplatePlayer[];
+};
+export type CalendarWeek = {
+  gameweek_id: number;
+  counts: Record<string, number>;
+  blanks: number[];
+  doubles: number[];
+};
+export type OverpoweredPlayer = {
+  player_id: number;
+  web_name: string;
+  position: string;
+  xp: number;
+  now_cost: number;
+};
+export type OverpoweredXI = {
+  formation: string;
+  total_xp: number;
+  total_cost: number;
+  xi: OverpoweredPlayer[];
+};
+
+export function getTrends(base: string, limit = 10) {
+  return fetch(`${base}/trends?limit=${limit}`, { cache: "no-store" }).then(asJson<Trends>);
+}
+export function getTemplate(base: string) {
+  return fetch(`${base}/template`, { cache: "no-store" }).then(asJson<TemplateXI>);
+}
+export function getCalendar(base: string, fromGw: number, toGw: number) {
+  return fetch(`${base}/calendar?from_gw=${fromGw}&to_gw=${toGw}`, { cache: "no-store" }).then(
+    asJson<CalendarWeek[]>,
+  );
+}
+export function getOverpowered(base: string, horizon = 5) {
+  return fetch(`${base}/overpowered?horizon=${horizon}`, { cache: "no-store" }).then(
+    asJson<OverpoweredXI>,
+  );
+}
