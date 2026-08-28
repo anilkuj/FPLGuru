@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** ✅ Foundation (PR #1), ✅ P1c Basic xP (PR #2), ✅ P1a Team Linking (PR #3), ✅ P1d FDR Table (PR #4) — all merged to `main`. **P1b Live Scores & GW Live in progress** on `feature/p1b-live-scores` (Tasks 1–7 done, Task 8 docs finishing). Scope pivot 2026-08-27: product is **free, no Free/Pro tiers** — P1g (Stripe) + P4c (annual billing) dropped; P1a-auth optional.
+**Status:** ✅ Foundation (PR #1), ✅ P1c Basic xP (PR #2), ✅ P1a Team Linking (PR #3), ✅ P1d FDR Table (PR #4), ✅ P1b Live Scores & GW Live (PR #5) — all merged to `main`. **Next: P1e — Alerts Engine + Priority Ranking** (not started). Scope pivot 2026-08-27: product is **free, no Free/Pro tiers** — P1g (Stripe) + P4c (annual billing) dropped; P1a-auth optional; alert caps become user-configurable (default uncapped), no "upgrade" message.
 **Last updated:** 2026-08-27.
-**Branch:** `feature/p1b-live-scores` (off `main`), not pushed.
+**Branch:** `main` (P1b merged); P1e branch not yet created.
 
 ---
 
@@ -131,7 +131,7 @@ Plan: [`docs/plans/2026-08-27-p1b-live-scores.md`](plans/2026-08-27-p1b-live-sco
 
 **Deviations from the plan:** Tasks 4 and 5 landed in one commit (they share `_live_snapshot`). The SSE test drives the `_live_event_stream` async generator directly + asserts the route's media-type/headers — httpx's `ASGITransport` buffers responses so it cannot consume a real stream. `is_disconnected()` is checked *after* the first `yield` (a pre-yield check can block under some Starlette versions). Env prefix is `FPLGURU_` so the Beat cadence var is `FPLGURU_LIVE_POLL_SECONDS`.
 
-**Verification (repo state after Task 7):** `python -m pytest -q -W error` → **109 passed**, no warnings; `ruff check .` clean; `alembic check` clean; web `vitest run` → 5 passed; `next build` → `/live` prerendered OK. Next: docs commit → PR `feature/p1b-live-scores` → `main`. **Live end-to-end (real FPL data during a match window) not yet verified** — do this once a GW is in play.
+**Verification (repo state after Task 7):** `python -m pytest -q -W error` → **109 passed**, no warnings; `ruff check .` clean; `alembic check` clean; web `vitest run` → 5 passed; `next build` → `/live` prerendered OK. **Merged to `main` as PR #5 (`0e7b7d1`).** **Live end-to-end (real FPL data during a match window) not yet verified** — do this once a GW is in play.
 
 ---
 
