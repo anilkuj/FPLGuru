@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b/P2c/P2d shipped** (PRs #9–#16 merged). P2d = `fplguru-optimize` pkg (best XI / greedy transfers / chip hints) + `GET /entries/{id}/optimize` + `/optimize` web page. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **Next: P4b (Model Transparency)** — then P2f (H2H), P4a (Saved plans).
+**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b/P2c/P2d shipped** (PRs #9–#16 merged) + **P4b (Model Transparency) built on `feature/p4b-transparency`** (Tasks 1–4 done, committed, not yet pushed) — `fplguru_ml.eval.pointwise_metrics` + `GET /model/transparency` + **Model** tab on `/tools`. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **Next: P2f (H2H Match Helper)** — then P4a (Saved plans, needs P2d). Everything else (P3a-d, P1a-auth) is blocked on external keys/decisions.
 **Last updated:** 2026-08-28.
-**Branch:** `main` (P2d merged `fa7fa6a`). **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
+**Branch:** `feature/p4b-transparency` (off `main`), not pushed — next: full sweep → review → PR → merge. **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
 
 ---
 
@@ -370,6 +370,25 @@ Plan: [`docs/plans/2026-08-28-p2d-optimize-my-team.md`](plans/2026-08-28-p2d-opt
 **Caveat:** greedy, not a global optimum; transfers kept same-position so the 15-shape stays legal without re-solving. Market pre-trimmed to top ~40 per position by xp for speed.
 
 **Verification:** `pytest -q -W error` → **230 passed**; `ruff` / `alembic check` clean; web `vitest run` → 24 passed; `next build` → success (`/optimize` route). **Merged to `main` as PR #16 (`fa7fa6a`).**
+
+---
+
+## P4b — Model Transparency Page (branch `feature/p4b-transparency`)
+
+Plan: [`docs/plans/2026-08-28-p4b-model-transparency.md`](plans/2026-08-28-p4b-model-transparency.md). Public model-accuracy view. **No migration.**
+
+| Task | What | Status |
+|---|---|---|
+| 1 | `fplguru_ml.eval.pointwise_metrics(pairs) -> {n, mae, rmse, bias}` (bias = mean signed error, pred − actual; empty → zeroed) | ✅ |
+| 2 | `GET /model/transparency?last=N` — joins stored `horizon_gw=1` predictions to actual `PlayerGwStat.total_points` over finished GWs; `by_position` + `rolling` metric maps per model (`GK/DEF/MID/FWD/ALL`) for `basic-v1` and `adv-v1`, plus `last_gw.rows` (per-player proj/actual/Δ, sorted by |Δ|). Empty-DB safe. | ✅ |
+| 3 | web **Model** tab on `/tools` — `getTransparency` + types; per-model overall + rolling MAE/RMSE/bias tables side by side; last-GW proj-vs-actual `DataTable` with ±Δ badge; `EmptyState` before any GW finishes | ✅ |
+| 4 | docs (README, master plan, this file) | ✅ |
+
+**Caveat:** a finished GW's prediction rows are the last hourly `compute_xp` before it finished, **not** a deadline-locked snapshot. A `prediction_snapshot` table (worker writes once per GW at deadline) is the follow-up for a provably fair live backtest.
+
+**Verification:** `pytest -q -W error` → **235 passed**; `ruff` / `alembic check` clean; web `vitest run` → 26 passed; `next build` → success.
+
+**Next:** whole-branch review → PR `feature/p4b-transparency` → `main`. Then only **P2f (H2H)** and **P4a (Saved plans)** remain unblocked.
 
 ---
 

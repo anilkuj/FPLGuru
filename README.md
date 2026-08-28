@@ -146,6 +146,15 @@ price-change modelling and true chip simulation are follow-ups.
 
 The `/optimize` web page renders it with horizon / max-transfers selectors.
 
+## Model transparency
+
+`GET /model/transparency?last=N` joins the last-computed `horizon_gw=1` projection for each finished
+gameweek to the actual points scored, and returns MAE / RMSE / bias per position for `basic-v1` and
+`adv-v1` (overall + rolling last-N), plus that gameweek's per-player projection-vs-actual
+breakdown. The **Model** tab on `/tools` renders it. Caveat: it uses the live prediction row for a
+finished GW (the last hourly `compute_xp` before it finished), not a deadline-locked snapshot — a
+snapshot table is a follow-up.
+
 ## Fixture difficulty (FDR)
 
 Platform-computed FDR per team — FPL opponent strength tier blended with recent
