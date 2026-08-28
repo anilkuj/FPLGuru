@@ -1,0 +1,7 @@
+{"league": {"id": 111, "name": "Work League"},
+ "standings": {"has_next": true, "page": 1, "results": [
+   {"entry": 7, "entry_name": "My Team", "player_name": "Sam Q",
+    "rank": 4, "last_rank": 6, "total": 512, "event_total": 61},
+   {"entry": 99, "entry_name": "Rival FC", "player_name": "Alex P",
+    "rank": 5, "last_rank": 3, "total": 508, "event_total": 44}
+ ]}}
