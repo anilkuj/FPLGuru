@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b/P2c shipped** (PRs #9–#15 merged) + **P2d (Optimize My Team) built on `feature/p2d-optimize`** (Tasks 1–5 done, committed, not yet pushed) — `fplguru-optimize` pkg (best XI / greedy transfers / chip hints) + `GET /entries/{id}/optimize` + `/optimize` web page. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **Next: P4b (Model Transparency)** or P2f (H2H) or P4a (Saved plans, needs P2d).
+**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b/P2c/P2d shipped** (PRs #9–#16 merged). P2d = `fplguru-optimize` pkg (best XI / greedy transfers / chip hints) + `GET /entries/{id}/optimize` + `/optimize` web page. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **Next: P4b (Model Transparency)** — then P2f (H2H), P4a (Saved plans).
 **Last updated:** 2026-08-28.
-**Branch:** `feature/p2d-optimize` (off `main`), not pushed — next: full sweep → review → PR → merge. **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
+**Branch:** `main` (P2d merged `fa7fa6a`). **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
 
 ---
 
@@ -369,9 +369,7 @@ Plan: [`docs/plans/2026-08-28-p2d-optimize-my-team.md`](plans/2026-08-28-p2d-opt
 
 **Caveat:** greedy, not a global optimum; transfers kept same-position so the 15-shape stays legal without re-solving. Market pre-trimmed to top ~40 per position by xp for speed.
 
-**Verification:** `pytest -q -W error` → **230 passed**; `ruff` / `alembic check` clean; web `vitest run` → 24 passed; `next build` → success (`/optimize` route).
-
-**Next:** whole-branch review → PR `feature/p2d-optimize` → `main`. Then **P4a (Saved Optimization Plans)** is unblocked.
+**Verification:** `pytest -q -W error` → **230 passed**; `ruff` / `alembic check` clean; web `vitest run` → 24 passed; `next build` → success (`/optimize` route). **Merged to `main` as PR #16 (`fa7fa6a`).**
 
 ---
 
