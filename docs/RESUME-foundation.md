@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i shipped** (PRs #9–#13 merged) + **P2b (Advanced xP) built on `feature/p2b-advanced-xp`** (Tasks 1–8 done, code committed, not yet pushed) — pure-numpy per-position GBRT + quantile floor/ceiling bands served as `adv-v1` beside `basic-v1`, `?model=` selector, web squad toggle; adv beats basic RMSE on all 4 positions. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **P2c (LLM Explanation Layer) now unblocked.** Also unblocked: P2d optimizer, P2f H2H.
+**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b shipped** (PRs #9–#14 merged). P2b = pure-numpy per-position GBRT + quantile floor/ceiling bands served as `adv-v1` beside `basic-v1`, `?model=` selector, web squad toggle; adv beats basic RMSE on all 4 positions. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **Next: P2c (LLM Explanation Layer)** — now unblocked. Also unblocked: P2d optimizer, P2f H2H.
 **Last updated:** 2026-08-28.
-**Branch:** `feature/p2b-advanced-xp` (off `main`), not pushed — next: full sweep → review → PR → merge. **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
+**Branch:** `main` (P2b merged `eb29b8a`). **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
 
 ---
 
@@ -332,7 +332,9 @@ Plan: [`docs/plans/2026-08-28-p2b-advanced-xp.md`](plans/2026-08-28-p2b-advanced
 
 **Deferred:** real component models (vs the heuristic `x_*` split), SHAP / tree-path attribution (feeds P2c + P4b), isotonic calibration, multi-seed ensemble, full compounding multi-GW rollout.
 
-**Next:** whole-branch review → PR `feature/p2b-advanced-xp` → `main` → then **P2c (LLM Explanation Layer)** is unblocked.
+**Verification:** `pytest -q -W error` → **209 passed**; `ruff` / `alembic check` clean; web `vitest run` → 20 passed; `next build` → success. **Merged to `main` as PR #14 (`eb29b8a`).**
+
+**Next:** **P2c (LLM Explanation Layer)** is unblocked.
 
 ---
 
