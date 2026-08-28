@@ -11,7 +11,7 @@
 > - Every feature marked "Pro" is just a feature, available to everyone. Horizon selectors expose the full 1–10 range to all users. Alert message caps become a user-configurable setting (default: uncapped).
 > - **P1a-auth** (accounts) is now *optional* — only for cross-device sync / saved preferences, and blocks nothing.
 > - Milestones M2/M3 drop their "Stripe in test mode" / "flip Stripe to live" criteria.
-> Remaining sub-plans after this override: **5** (F + all of Phase 1 + **P1i** design system + **P2h/P2i/P2e/P2a/P2b/P2c/P2d** done; P1g + P4c dropped). **Decided:** xG source → PitchAPI; LLM → Google Gemini + `$5/mo` cap; **UI is now a dark design system + sidebar app shell** (P1i). **Telegram (P2g) deferred.** **Unblocked:** P2f H2H, P4b transparency, P4a saved plans (needs P2d ✓).
+> Remaining sub-plans after this override: **4** (F + all of Phase 1 + **P1i** design system + **P2h/P2i/P2e/P2a/P2b/P2c/P2d/P4b** done; P1g + P4c dropped). **Decided:** xG source → PitchAPI; LLM → Google Gemini + `$5/mo` cap; **UI is now a dark design system + sidebar app shell** (P1i). **Telegram (P2g) deferred.** **Unblocked:** P2f H2H, P4a saved plans (needs P2d ✓). **Blocked on external keys/decisions:** P3a (YouTube API), P3b (press source), P3c (needs P3a), P3d (WhatsApp BSP), P1a-auth (OAuth/email).
 
 **Source of truth:** `PRD.md` (the document this plan is derived from). Section references below (`§5.3` etc.) point at that PRD.
 
@@ -140,7 +140,7 @@ Each sub-plan produces **working, testable software on its own** and has its own
 | # | Sub-plan | Delivers | Depends on | PRD refs |
 |---|---|---|---|---|
 | **P4a** | Saved Optimization Plans | Up to 5 saved plans per Pro user. | P2d, P1g | §4.5, §3 |
-| **P4b** | Model Transparency Page | Public "last GW xP vs actual" + rolling MAE/RMSE per position; A/B model-version switch. | P1c, P2b | §5.7 |
+| **P4b** ✅ | Model Transparency Page — *done* ([`2026-08-28-p4b-model-transparency.md`](2026-08-28-p4b-model-transparency.md), branch `feature/p4b-transparency`) | `fplguru_ml.eval.pointwise_metrics` (n/mae/rmse/bias); `GET /model/transparency?last=N` joins stored `horizon_gw=1` predictions to actual `total_points` over finished GWs → per-position metrics (overall + rolling) for `basic-v1` **and** `adv-v1` side by side + the last GW's per-player projection-vs-actual rows; **Model** tab on `/tools`. No migration. A/B = both models shown at once (no toggle needed). Deferred: deadline-locked prediction snapshots, calibration/reliability plot, per-GW trend chart. | P1c, P2b | §5.7 |
 | ~~**P4c**~~ | ~~Annual Billing~~ — **DROPPED** (scope override). Referral/growth mechanic optional, standalone. | — | §9 |
 
 ---

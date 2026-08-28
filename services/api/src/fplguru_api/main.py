@@ -39,6 +39,7 @@ from fplguru_core.models import (
 )
 from fplguru_core.settings import get_settings
 from fplguru_explain import DRIVER_PHRASES, explanation_prompt, template_explanation
+from fplguru_ml.eval import pointwise_metrics
 from fplguru_ml.features import wmean
 from fplguru_ml.model_advanced import AdvancedXP
 from fplguru_ml.serving import adv_feature_row
@@ -805,6 +806,67 @@ async def entry_optimize(entry_id: int, horizon: int = Query(5, ge=1, le=10),
             max_transfers=max_transfers, key="xp",
         ),
         "chips": chip_hints(cal, squad_team_ids=team_ids),
+    }
+
+
+@app.get("/model/transparency")
+async def model_transparency(last: int = Query(6, ge=1, le=19),
+                             db: AsyncSession = Depends(get_db)) -> dict:
+    """Last-computed horizon-1 projection vs actual points over finished GWs:
+    MAE / RMSE / bias per position for basic-v1 and adv-v1 (overall + rolling
+    last-`last` GWs), plus the most recent GW's per-player breakdown."""
+    models = [_MODEL_VERSION, _ADV_MODEL_VERSION]
+    finished = [g for (g,) in (await db.execute(
+        select(Gameweek.id).where(Gameweek.finished.is_(True)).order_by(Gameweek.id)
+    )).all()]
+    if not finished:
+        zero = {m: {} for m in models}
+        return {"models": models, "gameweeks": [], "rolling_window": last,
+                "by_position": zero, "rolling": zero, "last_gw": None}
+
+    actual = {(pid, gw): tp for pid, gw, tp in (await db.execute(
+        select(PlayerGwStat.player_id, PlayerGwStat.gameweek_id, PlayerGwStat.total_points)
+        .where(PlayerGwStat.gameweek_id.in_(finished))
+    )).all()}
+    pos = dict((await db.execute(select(Player.id, Player.position))).all())
+    names = dict((await db.execute(select(Player.id, Player.web_name))).all())
+    preds = (await db.execute(
+        select(PlayerGwPrediction.player_id, PlayerGwPrediction.gameweek_id,
+               PlayerGwPrediction.model_version, PlayerGwPrediction.xp)
+        .where(PlayerGwPrediction.gameweek_id.in_(finished),
+               PlayerGwPrediction.horizon_gw == 1,
+               PlayerGwPrediction.model_version.in_(models))
+    )).all()
+
+    recent = set(finished[-last:])
+    buckets: dict = {m: {} for m in models}
+    roll: dict = {m: {} for m in models}
+    for pid, gw, mv, xp in preds:
+        if (pid, gw) not in actual or pid not in pos:
+            continue
+        pair = (float(xp), float(actual[(pid, gw)]))
+        for key in (pos[pid], "ALL"):
+            buckets[mv].setdefault(key, []).append(pair)
+            if gw in recent:
+                roll[mv].setdefault(key, []).append(pair)
+
+    def metric_map(src: dict) -> dict:
+        return {mv: {k: pointwise_metrics(v) for k, v in src[mv].items()} for mv in models}
+
+    last_id = finished[-1]
+    last_rows = [
+        {"player_id": pid, "web_name": names.get(pid, ""), "position": pos.get(pid, ""),
+         "model": mv, "predicted": round(float(xp), 2),
+         "actual": float(actual[(pid, gw)]),
+         "delta": round(float(xp) - float(actual[(pid, gw)]), 2)}
+        for pid, gw, mv, xp in preds
+        if gw == last_id and (pid, gw) in actual
+    ]
+    last_rows.sort(key=lambda r: -abs(r["delta"]))
+    return {
+        "models": models, "gameweeks": finished, "rolling_window": last,
+        "by_position": metric_map(buckets), "rolling": metric_map(roll),
+        "last_gw": {"gameweek_id": last_id, "rows": last_rows[:40]} if last_rows else None,
     }
 
 

@@ -93,6 +93,32 @@ export function getOptimize(base: string, entryId: number, horizon = 5, maxTrans
   ).then(asJson<Optimize>);
 }
 
+export type ModelMetric = { n: number; mae: number; rmse: number; bias: number };
+export type Transparency = {
+  models: string[];
+  gameweeks: number[];
+  rolling_window: number;
+  by_position: Record<string, Record<string, ModelMetric>>;
+  rolling: Record<string, Record<string, ModelMetric>>;
+  last_gw: {
+    gameweek_id: number;
+    rows: {
+      player_id: number;
+      web_name: string;
+      position: string;
+      model: string;
+      predicted: number;
+      actual: number;
+      delta: number;
+    }[];
+  } | null;
+};
+export function getTransparency(base: string, last = 6) {
+  return fetch(`${base}/model/transparency?last=${last}`, { cache: "no-store" }).then(
+    asJson<Transparency>,
+  );
+}
+
 export type XpDriver = { feature: string; phrase: string; direction: "up" | "down" };
 export type XpExplain = {
   player_id: number;
