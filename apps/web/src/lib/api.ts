@@ -112,3 +112,41 @@ export function getLive(base: string) {
     asJson<LiveSnapshot>,
   );
 }
+
+export type Alert = {
+  id: number;
+  type: string;
+  gameweek_id: number;
+  player_id: number | null;
+  priority: number;
+  title: string;
+  body: string;
+  payload: Record<string, unknown>;
+  suppressed: boolean;
+  seen: boolean;
+  created_at: string;
+};
+export type AlertFeedData = { alerts: Alert[]; unseen: number };
+
+export function getAlerts(base: string, entryId: number, includeSuppressed = false) {
+  const q = includeSuppressed ? "?include_suppressed=true" : "";
+  return fetch(`${base}/entries/${entryId}/alerts${q}`, { cache: "no-store" }).then(
+    asJson<AlertFeedData>,
+  );
+}
+
+export function markAlertsSeen(base: string, entryId: number, ids?: number[]) {
+  return fetch(`${base}/entries/${entryId}/alerts/seen`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(ids ? { ids } : {}),
+  }).then(asJson<{ marked: number }>);
+}
+
+export function updateEntrySettings(base: string, entryId: number, alertCap: number | null) {
+  return fetch(`${base}/entries/${entryId}/settings`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ alert_cap: alertCap }),
+  }).then(asJson<{ fpl_entry_id: number; alert_cap: number | null }>);
+}
