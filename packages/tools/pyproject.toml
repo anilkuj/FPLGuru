@@ -1,0 +1,13 @@
+[project]
+name = "fplguru-tools"
+version = "0.0.0"
+description = "Pure FPL analysis tools: trends, template XI, DGW/BGW calendar, overpowered XI."
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fplguru_tools"]
