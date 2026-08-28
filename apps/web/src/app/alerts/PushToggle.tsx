@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { Button } from "@/components/ui";
 import { getStoredEntryId } from "@/lib/entry";
 import { getVapidKey, subscribePush, unsubscribePush } from "@/lib/push";
 
@@ -23,17 +24,12 @@ export function PushToggle() {
       .catch(() => setState("off"));
   }, []);
 
-  if (state === "unknown" || entryId == null) return null;
-  if (state === "unsupported")
-    return (
-      <p className="mt-2 text-xs text-gray-400">
-        Notifications not supported on this browser.
-      </p>
-    );
+  if (state === "unknown" || state === "unsupported" || entryId == null) return null;
 
   return (
-    <button
-      className="mt-2 rounded border px-2 py-1 text-sm"
+    <Button
+      size="sm"
+      variant="outline"
       onClick={async () => {
         if (state === "on") {
           await unsubscribePush(API, entryId);
@@ -51,6 +47,6 @@ export function PushToggle() {
       }}
     >
       {state === "on" ? "Disable notifications" : "Enable notifications"}
-    </button>
+    </Button>
   );
 }

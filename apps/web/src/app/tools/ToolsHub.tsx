@@ -2,6 +2,20 @@
 
 import { useEffect, useState } from "react";
 
+import { DataTable } from "@/components/DataTable";
+import {
+  Badge,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Input,
+  Select,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui";
 import {
   type CalendarWeek,
   getCalendar,
@@ -16,27 +30,26 @@ import {
 } from "@/lib/api";
 
 const API = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
-const TABS = ["Trends", "Template", "Calendar", "Overpowered XI", "xG"] as const;
-type Tab = (typeof TABS)[number];
 
-function TrendList({ title, rows }: { title: string; rows: Trends["transfers_in"] }) {
+function TrendCard({ title, rows }: { title: string; rows: Trends["transfers_in"] }) {
   return (
-    <div>
-      <p className="text-xs font-semibold text-gray-500">{title}</p>
-      <ul className="mt-1 text-sm">
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-1.5">
         {rows.map((r) => (
-          <li key={r.player_id} className="flex justify-between gap-4">
+          <div key={r.player_id} className="flex items-center justify-between text-sm">
             <span>{r.web_name}</span>
-            <span className="text-gray-400">{r.value.toLocaleString()}</span>
-          </li>
+            <Badge>{r.value.toLocaleString()}</Badge>
+          </div>
         ))}
-      </ul>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
 export function ToolsHub() {
-  const [tab, setTab] = useState<Tab>("Trends");
   const [trends, setTrends] = useState<Trends | null>(null);
   const [template, setTemplate] = useState<TemplateXI | null>(null);
   const [calendar, setCalendar] = useState<CalendarWeek[] | null>(null);
@@ -44,203 +57,184 @@ export function ToolsHub() {
   const [xg, setXg] = useState<XgSnapshot | null>(null);
   const [xgPos, setXgPos] = useState("");
   const [horizon, setHorizon] = useState(5);
-  const [range, setRange] = useState<[number, number]>([1, 8]);
-  const [err, setErr] = useState<string | null>(null);
+  const [from, setFrom] = useState(1);
+  const [to, setTo] = useState(8);
+  const [tab, setTab] = useState("trends");
 
   useEffect(() => {
-    const fail = () => setErr("Could not load this tool.");
-    if (tab === "Trends" && !trends) getTrends(API).then(setTrends).catch(fail);
-    if (tab === "Template" && !template) getTemplate(API).then(setTemplate).catch(fail);
+    if (tab === "trends" && !trends) getTrends(API).then(setTrends).catch(() => undefined);
+    if (tab === "template" && !template)
+      getTemplate(API).then(setTemplate).catch(() => undefined);
   }, [tab, trends, template]);
-
   useEffect(() => {
-    if (tab === "Calendar")
-      getCalendar(API, range[0], range[1])
-        .then(setCalendar)
-        .catch(() => setErr("Could not load this tool."));
-  }, [tab, range]);
-
+    if (tab === "calendar") getCalendar(API, from, to).then(setCalendar).catch(() => undefined);
+  }, [tab, from, to]);
   useEffect(() => {
-    if (tab === "Overpowered XI")
-      getOverpowered(API, horizon)
-        .then(setOp)
-        .catch(() => setErr("Could not load this tool."));
+    if (tab === "op") getOverpowered(API, horizon).then(setOp).catch(() => undefined);
   }, [tab, horizon]);
-
   useEffect(() => {
-    if (tab === "xG")
-      getXgSnapshot(API, 6, xgPos || undefined)
-        .then(setXg)
-        .catch(() => setErr("Could not load this tool."));
+    if (tab === "xg")
+      getXgSnapshot(API, 6, xgPos || undefined).then(setXg).catch(() => undefined);
   }, [tab, xgPos]);
 
   return (
-    <>
-      <div className="mt-3 flex flex-wrap gap-2 text-sm">
-        {TABS.map((t) => (
-          <button
-            key={t}
-            className={`rounded border px-2 py-1 ${t === tab ? "bg-sky-200 border-sky-300" : ""}`}
-            onClick={() => {
-              setErr(null);
-              setTab(t);
-            }}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-      {err && <p className="mt-3 text-sm text-red-600">{err}</p>}
+    <Tabs value={tab} onValueChange={setTab}>
+      <TabsList>
+        <TabsTrigger value="trends">Trends</TabsTrigger>
+        <TabsTrigger value="template">Template</TabsTrigger>
+        <TabsTrigger value="calendar">Calendar</TabsTrigger>
+        <TabsTrigger value="op">Overpowered XI</TabsTrigger>
+        <TabsTrigger value="xg">xG</TabsTrigger>
+      </TabsList>
 
-      {tab === "Trends" && trends && (
-        <div className="mt-4 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          <TrendList title="Most transferred in" rows={trends.transfers_in} />
-          <TrendList title="Most transferred out" rows={trends.transfers_out} />
-          <TrendList title="Price risers" rows={trends.price_risers} />
-          <TrendList title="Price fallers" rows={trends.price_fallers} />
-          <TrendList title="Most owned" rows={trends.most_owned} />
-        </div>
-      )}
+      <TabsContent value="trends">
+        {trends && (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <TrendCard title="Most transferred in" rows={trends.transfers_in} />
+            <TrendCard title="Most transferred out" rows={trends.transfers_out} />
+            <TrendCard title="Price risers" rows={trends.price_risers} />
+            <TrendCard title="Price fallers" rows={trends.price_fallers} />
+            <TrendCard title="Most owned %" rows={trends.most_owned} />
+          </div>
+        )}
+      </TabsContent>
 
-      {tab === "Template" && template && (
-        <div className="mt-4">
-          <p className="text-sm text-gray-500">
-            {template.formation} · combined ownership {template.template_ownership}%
-          </p>
-          <ul className="mt-2 text-sm">
-            {template.xi.map((p) => (
-              <li key={p.player_id} className="flex justify-between gap-4">
-                <span>
-                  <span className="text-gray-400">{p.position}</span> {p.web_name}
+      <TabsContent value="template">
+        {template && (
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                Template XI · {template.formation} ·{" "}
+                <span className="text-fg-muted">
+                  {template.template_ownership}% combined ownership
                 </span>
-                <span className="text-gray-400">{p.selected_by_percent}%</span>
-              </li>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1.5">
+              {template.xi.map((p) => (
+                <div key={p.player_id} className="flex items-center justify-between text-sm">
+                  <span>
+                    <span className="mr-2 text-xs text-fg-muted">{p.position}</span>
+                    {p.web_name}
+                  </span>
+                  <span className="text-fg-muted">{p.selected_by_percent}%</span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+      </TabsContent>
+
+      <TabsContent value="calendar">
+        <div className="mb-3 flex items-center gap-2 text-sm text-fg-muted">
+          GW
+          <Input
+            className="w-16"
+            type="number"
+            value={from}
+            onChange={(e) => setFrom(Number(e.target.value) || 1)}
+          />
+          to
+          <Input
+            className="w-16"
+            type="number"
+            value={to}
+            onChange={(e) => setTo(Number(e.target.value) || 1)}
+          />
+        </div>
+        <Card>
+          <CardContent className="space-y-2 pt-5">
+            {(calendar ?? []).map((c) => (
+              <div key={c.gameweek_id} className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="w-12 font-medium">GW{c.gameweek_id}</span>
+                {c.doubles.map((t) => (
+                  <Badge key={`d${t}`} variant="positive">
+                    DGW {t}
+                  </Badge>
+                ))}
+                {c.blanks.map((t) => (
+                  <Badge key={`b${t}`} variant="warning">
+                    BGW {t}
+                  </Badge>
+                ))}
+                {c.doubles.length === 0 && c.blanks.length === 0 && (
+                  <span className="text-fg-muted">—</span>
+                )}
+              </div>
             ))}
-          </ul>
-        </div>
-      )}
+          </CardContent>
+        </Card>
+        <p className="mt-1 text-xs text-fg-muted">Values are FPL team ids.</p>
+      </TabsContent>
 
-      {tab === "Calendar" && (
-        <div className="mt-4">
-          <label className="text-sm text-gray-500">
-            GW{" "}
-            <input
-              className="w-14 rounded border px-1"
-              type="number"
-              value={range[0]}
-              onChange={(e) => setRange([Number(e.target.value) || 1, range[1]])}
-            />{" "}
-            to{" "}
-            <input
-              className="w-14 rounded border px-1"
-              type="number"
-              value={range[1]}
-              onChange={(e) => setRange([range[0], Number(e.target.value) || 1])}
-            />
-          </label>
-          <table className="mt-3 text-sm border-collapse">
-            <tbody>
-              {(calendar ?? []).map((c) => (
-                <tr key={c.gameweek_id} className="border-t">
-                  <td className="px-2 py-1 font-medium">GW{c.gameweek_id}</td>
-                  <td className="px-2 py-1 text-emerald-600">
-                    {c.doubles.length ? `DGW: ${c.doubles.join(", ")}` : ""}
-                  </td>
-                  <td className="px-2 py-1 text-amber-600">
-                    {c.blanks.length ? `BGW: ${c.blanks.join(", ")}` : ""}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="mt-1 text-xs text-gray-400">Values are FPL team ids.</p>
+      <TabsContent value="op">
+        <div className="mb-3 flex items-center gap-2 text-sm text-fg-muted">
+          Horizon
+          <Select value={horizon} onChange={(e) => setHorizon(Number(e.target.value))}>
+            {Array.from({ length: 10 }, (_, i) => i + 1).map((h) => (
+              <option key={h} value={h}>
+                {h}
+              </option>
+            ))}
+          </Select>
         </div>
-      )}
-
-      {tab === "Overpowered XI" && (
-        <div className="mt-4">
-          <label className="text-sm text-gray-500">
-            Horizon{" "}
-            <select
-              className="rounded border px-2 py-1"
-              value={horizon}
-              onChange={(e) => setHorizon(Number(e.target.value))}
-            >
-              {Array.from({ length: 10 }, (_, i) => i + 1).map((h) => (
-                <option key={h} value={h}>
-                  {h}
-                </option>
-              ))}
-            </select>
-          </label>
-          {op && (
-            <>
-              <p className="mt-2 text-sm text-gray-500">
+        {op && (
+          <Card>
+            <CardHeader>
+              <CardTitle>
                 {op.formation} · {op.total_xp} xP · £{(op.total_cost / 10).toFixed(1)}m
-              </p>
-              <ul className="mt-2 text-sm">
-                {op.xi.map((p) => (
-                  <li key={p.player_id} className="flex justify-between gap-4">
-                    <span>
-                      <span className="text-gray-400">{p.position}</span> {p.web_name}
-                    </span>
-                    <span className="text-gray-400">{p.xp} xP</span>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </div>
-      )}
-
-      {tab === "xG" && (
-        <div className="mt-4">
-          <label className="text-sm text-gray-500">
-            Position{" "}
-            <select
-              className="rounded border px-2 py-1"
-              value={xgPos}
-              onChange={(e) => setXgPos(e.target.value)}
-            >
-              <option value="">All</option>
-              {["GK", "DEF", "MID", "FWD"].map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-1.5">
+              {op.xi.map((p) => (
+                <div key={p.player_id} className="flex items-center justify-between text-sm">
+                  <span>
+                    <span className="mr-2 text-xs text-fg-muted">{p.position}</span>
+                    {p.web_name}
+                  </span>
+                  <span className="text-fg-muted">{p.xp} xP</span>
+                </div>
               ))}
-            </select>
-          </label>
-          {xg && xg.players.length === 0 && (
-            <p className="mt-3 text-sm text-gray-500">
-              No xG data yet — the <code>sync_xg</code> task fills this after matches.
-            </p>
-          )}
-          {xg && xg.players.length > 0 && (
-            <table className="mt-3 text-sm border-collapse">
-              <thead>
-                <tr className="text-left">
-                  <th className="px-2 py-1">Player</th>
-                  <th className="px-2 py-1">Pos</th>
-                  <th className="px-2 py-1 text-right">xG</th>
-                  <th className="px-2 py-1 text-right">xA</th>
-                  <th className="px-2 py-1 text-right">min</th>
-                </tr>
-              </thead>
-              <tbody>
-                {xg.players.slice(0, 40).map((p) => (
-                  <tr key={p.player_id} className="border-t">
-                    <td className="px-2 py-1 font-medium">{p.web_name}</td>
-                    <td className="px-2 py-1 text-gray-500">{p.position}</td>
-                    <td className="px-2 py-1 text-right">{p.xg}</td>
-                    <td className="px-2 py-1 text-right">{p.xag}</td>
-                    <td className="px-2 py-1 text-right text-gray-400">{p.minutes}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+            </CardContent>
+          </Card>
+        )}
+      </TabsContent>
+
+      <TabsContent value="xg">
+        <div className="mb-3 flex items-center gap-2 text-sm text-fg-muted">
+          Position
+          <Select value={xgPos} onChange={(e) => setXgPos(e.target.value)}>
+            <option value="">All</option>
+            {["GK", "DEF", "MID", "FWD"].map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </Select>
         </div>
-      )}
-    </>
+        <Card className="p-1.5">
+          <DataTable
+            rows={(xg?.players ?? []).slice(0, 40)}
+            rowKey={(r) => r.player_id}
+            initialSort={{ key: "xg", dir: "desc" }}
+            emptyTitle="No xG data yet"
+            emptyHint="Add a PitchAPI key and the sync_xg task fills this after matches."
+            columns={[
+              { key: "web_name", header: "Player", className: "font-medium" },
+              { key: "position", header: "Pos", className: "text-fg-muted" },
+              { key: "xg", header: "xG", align: "right", sortable: true },
+              { key: "xag", header: "xA", align: "right", sortable: true },
+              {
+                key: "minutes",
+                header: "min",
+                align: "right",
+                sortable: true,
+                className: "text-fg-muted",
+              },
+            ]}
+          />
+        </Card>
+      </TabsContent>
+    </Tabs>
   );
 }
