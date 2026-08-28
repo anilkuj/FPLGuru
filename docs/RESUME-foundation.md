@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b shipped** (PRs #9–#14 merged) + **P2c (LLM Explanation Layer) built on `feature/p2c-llm-explanation`** (Tasks 1–6 done, committed, not yet pushed) — `AdvancedXP.explain_row` occlusion attribution + `fplguru-explain` pkg + `xp_rationale` cache (`0012`) + `GET /players/{id}/xp/explain` + web squad "Why?" panel. P2b = pure-numpy per-position GBRT + quantile bands (`adv-v1`), `?model=` selector; adv beats basic RMSE on all 4 positions. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **Next: P2d (Optimize My Team)** or P2f (H2H) or P4b (Transparency) — all unblocked.
+**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b/P2c shipped** (PRs #9–#15 merged). P2c = `AdvancedXP.explain_row` occlusion attribution + `fplguru-explain` pkg + `xp_rationale` cache (`0012`) + `GET /players/{id}/xp/explain` + web squad "Why?" panel. P2b = pure-numpy per-position GBRT + quantile bands (`adv-v1`), `?model=` selector. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **Next: P2d (Optimize My Team)** — then P2f (H2H), P4b (Transparency), P4a (Saved plans, needs P2d).
 **Last updated:** 2026-08-28.
-**Branch:** `feature/p2c-llm-explanation` (off `main`), not pushed — next: full sweep → review → PR → merge. **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
+**Branch:** `main` (P2c merged `bb8e3e7`). **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
 
 ---
 
@@ -351,9 +351,7 @@ Plan: [`docs/plans/2026-08-28-p2c-llm-explanation.md`](plans/2026-08-28-p2c-llm-
 
 **Caveat:** xG driver features are 0.0 until PitchAPI id-mapping lands, so drivers currently lean on form / fixtures / minutes / price / opponent-concede. No Gemini key in CI ⇒ `source: "template"` in tests.
 
-**Verification:** `pytest -q -W error` → **220 passed**; `ruff` / `alembic check` clean; web `vitest run` → 22 passed; `next build` → success.
-
-**Next:** whole-branch review → PR `feature/p2c-llm-explanation` → `main`. Then **P2d / P2f / P4b** are all open.
+**Verification:** `pytest -q -W error` → **220 passed**; `ruff` / `alembic check` clean; web `vitest run` → 22 passed; `next build` → success. **Merged to `main` as PR #15 (`bb8e3e7`).**
 
 ---
 
