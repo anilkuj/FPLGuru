@@ -84,3 +84,31 @@ async def test_sync_entry_tolerates_picks_404(db_session, monkeypatch):
         select(func.count()).select_from(EntryPick).where(EntryPick.linked_team_id == lt_id)
     )).scalar()
     assert picks == 0
+
+
+@respx.mock
+async def test_sync_entry_upserts_mini_leagues(db_session, monkeypatch):
+    monkeypatch.setenv("FPLGURU_FPL_API_BASE", BASE)
+    await _seed(db_session)
+    respx.get(f"{BASE}/entry/7/").mock(return_value=httpx.Response(200, json=ENTRY))
+    respx.get(f"{BASE}/entry/7/history/").mock(return_value=httpx.Response(200, json=HIST))
+    respx.get(f"{BASE}/entry/7/event/2/picks/").mock(return_value=httpx.Response(200, json=PICKS))
+
+    lt_id = await sync_entry(7)
+
+    from fplguru_core.models import LinkedTeamLeague
+
+    rows = (await db_session.execute(
+        select(LinkedTeamLeague).where(LinkedTeamLeague.linked_team_id == lt_id)
+        .order_by(LinkedTeamLeague.league_id)
+    )).scalars().all()
+    assert [(r.league_id, r.league_name, r.entry_rank, r.entry_last_rank) for r in rows] == [
+        (111, "Work League", 4, 6),
+        (314, "Overall", 900000, 950000),
+    ]
+
+    await sync_entry(7)   # idempotent — no duplicates
+    rows = (await db_session.execute(
+        select(LinkedTeamLeague).where(LinkedTeamLeague.linked_team_id == lt_id)
+    )).scalars().all()
+    assert len(rows) == 2
