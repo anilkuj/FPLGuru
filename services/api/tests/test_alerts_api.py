@@ -63,3 +63,18 @@ async def test_patch_settings_alert_cap(client, db_session):
 
 async def test_alerts_unknown_entry_404(client, db_session):
     assert (await client.get("/entries/999/alerts")).status_code == 404
+
+
+async def test_get_settings_returns_defaults(client, db_session):
+    await _seed(db_session)
+    body = (await client.get("/entries/555/settings")).json()
+    assert body["alert_cap"] is None
+    assert body["reminder_offsets"] == [1440, 120, 60, 30]
+
+
+async def test_patch_settings_reminder_offsets(client, db_session):
+    await _seed(db_session)
+    r = await client.patch("/entries/555/settings",
+                           json={"reminder_offsets": [180, 45, 45, 0, -3]})
+    assert r.json()["reminder_offsets"] == [180, 45]
+    assert r.json()["alert_cap"] is None
