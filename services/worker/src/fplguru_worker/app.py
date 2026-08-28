@@ -16,6 +16,7 @@ celery_app.conf.update(
         "compute-xp": {"task": "compute_xp", "schedule": 3600.0},          # hourly
         "sync-linked-teams": {"task": "sync_linked_teams", "schedule": 3600.0},
         "poll-live": {"task": "poll_live", "schedule": settings.live_poll_seconds},
+        "generate-alerts": {"task": "generate_alerts", "schedule": 1800.0},
     },
 )
 

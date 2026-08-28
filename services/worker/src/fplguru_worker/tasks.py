@@ -5,9 +5,12 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from fplguru_alerts import availability_alerts, dgw_bgw_alerts, score_alert
 from fplguru_core.db import dispose_engine, get_sessionmaker, reset_state
 from fplguru_core.models import (
+    Alert,
     DataSyncLog,
+    EntryPick,
     Fixture,
     Gameweek,
     LinkedTeam,
@@ -287,6 +290,133 @@ async def _poll_live() -> None:
 def poll_live(self) -> None:
     try:
         asyncio.run(_run_and_dispose(_poll_live))
+    except Exception as exc:
+        raise self.retry(exc=exc) from exc
+
+
+async def _upsert_alerts(session, rows: list[dict]) -> None:
+    if not rows:
+        return
+    stmt = pg_insert(Alert).values(rows)
+    update_cols = {
+        c: stmt.excluded[c]
+        for c in rows[0]
+        if c not in ("linked_team_id", "dedup_key", "seen_at")
+    }
+    update_cols["updated_at"] = func.now()
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["linked_team_id", "dedup_key"], set_=update_cols
+    )
+    await session.execute(stmt)
+
+
+def _team_flag(by_player: dict, team_names: list[str], attr: str) -> bool:
+    return any(p[attr] for p in by_player.values() if p["web_name"] in team_names)
+
+
+async def _generate_alerts() -> None:
+    started = datetime.now(UTC)
+    try:
+        async with get_sessionmaker()() as session, session.begin():
+            gw = (
+                await session.execute(select(Gameweek).where(Gameweek.is_current))
+            ).scalar_one_or_none()
+            if gw is None:
+                await _record(session, "alerts", "ok", started, "no current gameweek")
+                return
+            before_deadline = gw.deadline_time > datetime.now(UTC)
+
+            teams = (await session.execute(select(LinkedTeam))).scalars().all()
+            fx_counts: dict[int, int] = {}
+            for f in (await session.execute(
+                select(Fixture).where(Fixture.gameweek_id == gw.id)
+            )).scalars().all():
+                fx_counts[f.home_team_id] = fx_counts.get(f.home_team_id, 0) + 1
+                fx_counts[f.away_team_id] = fx_counts.get(f.away_team_id, 0) + 1
+
+            total = 0
+            for lt in teams:
+                pick_gw = (await session.execute(
+                    select(func.max(EntryPick.gameweek_id))
+                    .where(EntryPick.linked_team_id == lt.id)
+                )).scalar()
+                if pick_gw is None:
+                    continue
+                picked = (await session.execute(
+                    select(EntryPick, Player).join(Player, Player.id == EntryPick.player_id)
+                    .where(EntryPick.linked_team_id == lt.id,
+                           EntryPick.gameweek_id == pick_gw)
+                )).all()
+                picks = [{
+                    "player_id": pl.id, "web_name": pl.web_name, "status": pl.status,
+                    "chance_of_playing_next_round": pl.chance_of_playing_next_round,
+                    "news": pl.news, "multiplier": ep.multiplier,
+                    "is_captain": ep.is_captain, "is_vice": ep.is_vice, "team_id": pl.team_id,
+                } for ep, pl in picked]
+                by_player = {p["player_id"]: p for p in picks}
+                owned_teams = {p["team_id"] for p in picks}
+                names_by_team: dict[int, list[str]] = {}
+                for p in picks:
+                    names_by_team.setdefault(p["team_id"], []).append(p["web_name"])
+
+                generated = availability_alerts(picks, gameweek_id=gw.id)
+                if sum(fx_counts.values()) > 0:  # fixtures for this GW are loaded
+                    generated += dgw_bgw_alerts(
+                        owned_teams, fx_counts, names_by_team, gameweek_id=gw.id
+                    )
+                rows = []
+                for a in generated:
+                    if a["player_id"]:
+                        owner = by_player.get(a["player_id"])
+                        in_xi = bool(owner and owner["multiplier"] > 0)
+                        is_cap = bool(owner and (owner["is_captain"] or owner["is_vice"]))
+                    else:
+                        team_names = a["payload"].get("player_names", [])
+                        in_xi = _team_flag(by_player, team_names, "multiplier")
+                        is_cap = (
+                            _team_flag(by_player, team_names, "is_captain")
+                            or _team_flag(by_player, team_names, "is_vice")
+                        )
+                    rows.append({
+                        "linked_team_id": lt.id,
+                        "gameweek_id": a["gameweek_id"],
+                        "type": a["type"],
+                        "dedup_key": a["dedup_key"],
+                        "player_id": a["player_id"],
+                        "title": a["title"],
+                        "body": a["body"],
+                        "payload": a["payload"],
+                        "priority": score_alert(
+                            a, in_xi=in_xi, is_captain=is_cap,
+                            before_deadline=before_deadline,
+                        ),
+                        "suppressed": False,
+                    })
+                await _upsert_alerts(session, rows)
+                total += len(rows)
+
+                gw_alerts = (await session.execute(
+                    select(Alert)
+                    .where(Alert.linked_team_id == lt.id, Alert.gameweek_id == gw.id)
+                    .order_by(Alert.priority.desc(), Alert.id)
+                )).scalars().all()
+                for i, row in enumerate(gw_alerts):
+                    row.suppressed = lt.alert_cap is not None and i >= lt.alert_cap
+
+            await _record(
+                session, "alerts", "ok", started,
+                f"{total} alerts over {len(teams)} teams",
+            )
+        logger.info("alerts generated: %d rows", total)
+    except Exception as exc:
+        await _log_error("alerts", started, exc)
+        raise
+
+
+@celery_app.task(name="generate_alerts", bind=True, max_retries=2, default_retry_delay=60)
+def generate_alerts(self) -> None:
+    try:
+        asyncio.run(_run_and_dispose(_generate_alerts))
     except Exception as exc:
         raise self.retry(exc=exc) from exc
 

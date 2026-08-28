@@ -65,7 +65,7 @@ def dgw_bgw_alerts(owned_team_ids: set[int], fixture_counts: dict[int, int],
                    names_by_team: dict[int, list[str]], *, gameweek_id: int) -> list[dict]:
     out: list[dict] = []
     for team_id in sorted(owned_team_ids):
-        n = fixture_counts.get(team_id, 1)
+        n = fixture_counts.get(team_id, 0)   # absent = no fixture that GW = blank
         names = names_by_team.get(team_id, [])
         if n == 0:
             kind, label = "bgw", "Blank gameweek"
