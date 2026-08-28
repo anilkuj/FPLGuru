@@ -18,6 +18,7 @@ celery_app.conf.update(
         "poll-live": {"task": "poll_live", "schedule": settings.live_poll_seconds},
         "generate-alerts": {"task": "generate_alerts", "schedule": 1800.0},
         "deliver-push": {"task": "deliver_push", "schedule": 60.0},
+        "sync-league-standings": {"task": "sync_league_standings", "schedule": 7200.0},
     },
 )
 

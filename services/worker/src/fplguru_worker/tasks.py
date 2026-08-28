@@ -20,7 +20,9 @@ from fplguru_core.models import (
     EntryPick,
     Fixture,
     Gameweek,
+    LeagueStanding,
     LinkedTeam,
+    LinkedTeamLeague,
     Player,
     PlayerGwLive,
     PlayerGwStat,
@@ -33,6 +35,7 @@ from fplguru_ingest.fpl import (
     normalize_event_live,
     normalize_fixtures,
     normalize_gameweeks,
+    normalize_league_standings,
     normalize_players,
     normalize_teams,
 )
@@ -569,5 +572,52 @@ async def _sync_linked_teams() -> None:
 def sync_linked_teams(self) -> None:
     try:
         asyncio.run(_run_and_dispose(_sync_linked_teams))
+    except Exception as exc:
+        raise self.retry(exc=exc) from exc
+
+
+async def _upsert_standings(session, rows: list[dict]) -> None:
+    if not rows:
+        return
+    stmt = pg_insert(LeagueStanding).values(rows)
+    cols = {c: stmt.excluded[c] for c in rows[0] if c not in ("league_id", "entry_id")}
+    cols["updated_at"] = func.now()
+    await session.execute(stmt.on_conflict_do_update(
+        index_elements=["league_id", "entry_id"], set_=cols))
+
+
+async def _sync_league_standings() -> None:
+    started = datetime.now(UTC)
+    try:
+        async with get_sessionmaker()() as session:
+            league_ids = sorted({
+                lid for (lid,) in (await session.execute(
+                    select(LinkedTeamLeague.league_id).distinct()
+                )).all()
+            })
+        client = FplClient(get_settings().fpl_api_base)
+        total = 0
+        try:
+            for lid in league_ids:
+                payload = await client.league_standings(lid, page=1)
+                norm = normalize_league_standings(lid, payload)
+                async with get_sessionmaker()() as session, session.begin():
+                    await _upsert_standings(session, norm["rows"])
+                total += len(norm["rows"])
+        finally:
+            await client.aclose()
+        async with get_sessionmaker()() as session, session.begin():
+            await _record(session, "leagues", "ok", started,
+                          f"{total} rows over {len(league_ids)} leagues")
+        logger.info("league standings synced: %d rows / %d leagues", total, len(league_ids))
+    except Exception as exc:
+        await _log_error("leagues", started, exc)
+        raise
+
+
+@celery_app.task(name="sync_league_standings", bind=True, max_retries=2, default_retry_delay=120)
+def sync_league_standings(self) -> None:
+    try:
+        asyncio.run(_run_and_dispose(_sync_league_standings))
     except Exception as exc:
         raise self.retry(exc=exc) from exc
