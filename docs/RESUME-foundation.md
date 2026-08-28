@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** ✅ Foundation (PR #1), ✅ P1c Basic xP (PR #2), ✅ P1a Team Linking (PR #3), ✅ P1d FDR Table (PR #4), ✅ P1b Live Scores & GW Live (PR #5) — all merged to `main`. **Next: P1e — Alerts Engine + Priority Ranking** (not started). Scope pivot 2026-08-27: product is **free, no Free/Pro tiers** — P1g (Stripe) + P4c (annual billing) dropped; P1a-auth optional; alert caps become user-configurable (default uncapped), no "upgrade" message.
+**Status:** ✅ Foundation (PR #1), ✅ P1c Basic xP (PR #2), ✅ P1a Team Linking (PR #3), ✅ P1d FDR Table (PR #4), ✅ P1b Live Scores (PR #5) — merged to `main`. **P1e Alerts Engine built on `feature/p1e-alerts`** (Tasks 1–7 done, Task 8 docs finishing; not yet pushed). Scope pivot 2026-08-27: product is **free, no Free/Pro tiers** — P1g (Stripe) + P4c (annual billing) dropped; P1a-auth optional; `alert_cap` is user-configurable (default uncapped), no "upgrade" message.
 **Last updated:** 2026-08-27.
-**Branch:** `main` (P1b merged); P1e branch not yet created.
+**Branch:** `feature/p1e-alerts` (off `main`), not pushed.
 
 ---
 
@@ -85,7 +85,7 @@ Plan: [`docs/plans/2026-08-27-p1a-team-dashboard.md`](plans/2026-08-27-p1a-team-
 
 **Live-verified:** `POST /link/1` → "Chris Musson"; `GET /entries/1` → 15 picks with xP (Raya GK 11.0, Tzolis MID 9.5); `GET /entries/1/history` → GW1 (41 pts). 87 py tests + 3 web tests, `-W error` / `ruff` / `alembic check` clean, `next build` clean. Next: review → PR `feature/p1a-team-dashboard` → `main`.
 
-**Remaining unblocked Phase-1 path:** P1e (alerts + priority ranking) → P1f (deadline reminders) → P1h (PWA). Blocked: P1a-auth (OAuth/email — optional, blocks nothing). P1g (Stripe) and P4c (annual billing) **dropped** — product is free, no tiers.
+**Remaining unblocked Phase-1 path:** P1f (deadline reminders — extends P1e's alert channel) → P1h (PWA — `manifest.json`, service worker, VAPID + push-subscription mgmt, Web Push delivery sink for P1e alerts). Blocked: P1a-auth (OAuth/email — optional, blocks nothing). P1g (Stripe) and P4c (annual billing) **dropped** — product is free, no tiers.
 
 **P1c notes:** hand-rolled ridge (no scikit-learn — dodges SAC native-binary block); Basic model is FPL-data-only + leak-safe features (rolling form, minutes, home/away, price, opp-conceded-to-position); component breakdown (`x_*` cols) left 0.0 for Basic, filled in Advanced (P2b). Test seeding must be **FK-parent-first** (models have no `relationship()` → single `add_all` flushes in alphabetical class order). Real training/backtest needs `python scripts/fetch_historical.py 2022-23 2023-24 2024-25` first (gitignored `data/historical/`). New `DataSyncLog.source` values `fpl_gw_stats` / `xp_compute` — Task 14 must extend `/status`'s hardcoded source tuple (or make it enumerate `distinct(source)`).
 
@@ -132,6 +132,28 @@ Plan: [`docs/plans/2026-08-27-p1b-live-scores.md`](plans/2026-08-27-p1b-live-sco
 **Deviations from the plan:** Tasks 4 and 5 landed in one commit (they share `_live_snapshot`). The SSE test drives the `_live_event_stream` async generator directly + asserts the route's media-type/headers — httpx's `ASGITransport` buffers responses so it cannot consume a real stream. `is_disconnected()` is checked *after* the first `yield` (a pre-yield check can block under some Starlette versions). Env prefix is `FPLGURU_` so the Beat cadence var is `FPLGURU_LIVE_POLL_SECONDS`.
 
 **Verification (repo state after Task 7):** `python -m pytest -q -W error` → **109 passed**, no warnings; `ruff check .` clean; `alembic check` clean; web `vitest run` → 5 passed; `next build` → `/live` prerendered OK. **Merged to `main` as PR #5 (`0e7b7d1`).** **Live end-to-end (real FPL data during a match window) not yet verified** — do this once a GW is in play.
+
+---
+
+## P1e — Alerts Engine + Priority Ranking (branch `feature/p1e-alerts`)
+
+Plan: [`docs/plans/2026-08-27-p1e-alerts-engine.md`](plans/2026-08-27-p1e-alerts-engine.md). Design: [`docs/design/2026-08-27-alert-priority-ranking.md`](design/2026-08-27-alert-priority-ranking.md). Executed inline by the coordinator, TDD + full-verification per task.
+
+| Task | What | Status |
+|---|---|---|
+| 1 | priority-ranking design doc | ✅ `2592eb4` |
+| 2 | `packages/alerts` (`fplguru-alerts`) — `score_alert` + `availability_alerts` + `dgw_bgw_alerts` | ✅ `5c53ffb` |
+| 3 | `alerts` table + `linked_teams.alert_cap` (`0005`) | ✅ `bfe4e70` |
+| 4 | worker `_generate_alerts` + `generate_alerts` task + `generate-alerts` Beat (30 min) + cap application | ✅ `c9f70f7` |
+| 5 | `GET /entries/{id}/alerts`, `POST .../alerts/seen`, `PATCH .../settings` | ✅ `cf9eb9d` |
+| 6+7 | web `getAlerts`/`markAlertsSeen`/`updateEntrySettings` + `/alerts` feed page + `NavAlerts` unseen badge | ✅ `e148580` |
+| 8 | docs (README Alerts section, master plan ✅, this file) + final verification | 🔧 finishing |
+
+**Model:** `score_alert` = additive terms (base 60 availability / 45 bgw / 40 dgw; +25 (vice-)captain, +15 XI, +15 hard-out i/s/u, +10 pre-deadline), clamped 0–100, ties by `id`. `availability_alerts` flags any owned pick with `status != 'a'` or `chance_of_playing_next_round < 100`; dedup key encodes status+chance so a change re-alerts. `dgw_bgw_alerts` uses a `{team_id: fixture_count}` map for the current GW — **absent team = 0 fixtures = blank** — and the worker only runs it once at least one GW fixture is loaded (guards against a false BGW storm before `sync_fixtures`). Cap: per team per GW, sort by `(-priority, id)`, `suppressed = index >= alert_cap` (NULL cap → nothing suppressed).
+
+**Deviations from the plan:** `dgw_bgw_alerts`'s `fixture_counts.get(team_id, 0)` (plan first draft had default `1`, which hid real blanks) + the worker `sum(fx_counts.values()) > 0` guard. Web feed type is `AlertFeedData` (not `AlertFeed`, to avoid clashing with the `AlertFeed` component). API mutations use `await db.commit()` (not `async with db.begin()` — the session already autobegan on the `_linked_or_404` read). "Mark all read" (no `ids`) only clears the visible feed, not suppressed rows. Tasks 6+7 in one commit.
+
+**Verification (repo state after Task 7):** `python -m pytest -q -W error` → **126 passed**, no warnings; `ruff check .` clean; `alembic check` clean; web `vitest run` → 7 passed; `next build` → `/alerts` prerendered OK. Next: docs commit → PR `feature/p1e-alerts` → `main`. **Live end-to-end not yet verified** (needs linked teams + a real availability change or DGW/BGW GW).
 
 ---
 

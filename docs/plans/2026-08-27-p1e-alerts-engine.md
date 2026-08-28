@@ -269,7 +269,7 @@ def dgw_bgw_alerts(owned_team_ids: set[int], fixture_counts: dict[int, int],
                    names_by_team: dict[int, list[str]], *, gameweek_id: int) -> list[dict]:
     out: list[dict] = []
     for team_id in sorted(owned_team_ids):
-        n = fixture_counts.get(team_id, 1)
+        n = fixture_counts.get(team_id, 0)   # absent = no fixture that GW = blank
         names = names_by_team.get(team_id, [])
         if n == 0:
             kind, label = "bgw", "Blank gameweek"
@@ -566,10 +566,11 @@ async def _generate_alerts() -> None:
                 for p in picks:
                     names_by_team.setdefault(p["team_id"], []).append(p["web_name"])
 
-                generated = (
-                    availability_alerts(picks, gameweek_id=gw.id)
-                    + dgw_bgw_alerts(owned_teams, fx_counts, names_by_team, gameweek_id=gw.id)
-                )
+                generated = availability_alerts(picks, gameweek_id=gw.id)
+                if sum(fx_counts.values()) > 0:  # this GW's fixtures are loaded
+                    generated += dgw_bgw_alerts(
+                        owned_teams, fx_counts, names_by_team, gameweek_id=gw.id
+                    )
                 rows = []
                 for a in generated:
                     owner = by_player.get(a["player_id"]) if a["player_id"] else None
