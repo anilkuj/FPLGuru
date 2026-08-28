@@ -342,6 +342,21 @@ class CaptainRationale(_TimestampMixin, Base):
     model: Mapped[str] = mapped_column(String(48), default="")
 
 
+class XpRationale(_TimestampMixin, Base):
+    """Cached LLM explanation of a player's Advanced-xP projection for a gameweek."""
+    __tablename__ = "xp_rationale"
+    __table_args__ = (
+        UniqueConstraint("player_id", "gameweek_id", "model_version",
+                         name="uq_xp_rationale_player_id_gameweek_id_model_version"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
+    gameweek_id: Mapped[int] = mapped_column(ForeignKey("gameweeks.id"), index=True)
+    model_version: Mapped[str] = mapped_column(String(16))
+    text: Mapped[str] = mapped_column(String)
+    model: Mapped[str] = mapped_column(String(48), default="")
+
+
 class PitchTeamMap(_TimestampMixin, Base):
     __tablename__ = "pitch_team_map"
     __table_args__ = (UniqueConstraint("pitch_team_id", name="uq_pitch_team_map_pitch_team_id"),)
