@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b/P2c/P2d shipped** (PRs #9–#16 merged) + **P4b (Model Transparency) built on `feature/p4b-transparency`** (Tasks 1–4 done, committed, not yet pushed) — `fplguru_ml.eval.pointwise_metrics` + `GET /model/transparency` + **Model** tab on `/tools`. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **Next: P2f (H2H Match Helper)** — then P4a (Saved plans, needs P2d). Everything else (P3a-d, P1a-auth) is blocked on external keys/decisions.
+**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b/P2c/P2d/P4b shipped** (PRs #9–#17 merged). P4b = `fplguru_ml.eval.pointwise_metrics` + `GET /model/transparency` + **Model** tab on `/tools`. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **Next: P2f (H2H Match Helper)** — then P4a (Saved plans, needs P2d). Everything else (P3a-d, P1a-auth) is blocked on external keys/decisions.
 **Last updated:** 2026-08-28.
-**Branch:** `feature/p4b-transparency` (off `main`), not pushed — next: full sweep → review → PR → merge. **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
+**Branch:** `main` (P4b merged `6ad3285`). **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
 
 ---
 
@@ -386,9 +386,7 @@ Plan: [`docs/plans/2026-08-28-p4b-model-transparency.md`](plans/2026-08-28-p4b-m
 
 **Caveat:** a finished GW's prediction rows are the last hourly `compute_xp` before it finished, **not** a deadline-locked snapshot. A `prediction_snapshot` table (worker writes once per GW at deadline) is the follow-up for a provably fair live backtest.
 
-**Verification:** `pytest -q -W error` → **235 passed**; `ruff` / `alembic check` clean; web `vitest run` → 26 passed; `next build` → success.
-
-**Next:** whole-branch review → PR `feature/p4b-transparency` → `main`. Then only **P2f (H2H)** and **P4a (Saved plans)** remain unblocked.
+**Verification:** `pytest -q -W error` → **235 passed**; `ruff` / `alembic check` clean; web `vitest run` → 26 passed; `next build` → success. **Merged to `main` as PR #17 (`6ad3285`).**
 
 ---
 
