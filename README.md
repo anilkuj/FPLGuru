@@ -26,7 +26,8 @@ services/api           FastAPI: /health /ready /gameweeks /gameweeks/current /st
 services/worker        Celery worker + Beat: sync_bootstrap / sync_fixtures / sync_gw_stats
                        / compute_xp / sync_linked_teams / poll_live / generate_alerts
                        / deliver_push / sync_league_standings / sync_xg
-apps/web               Next.js 16 (App Router) PWA shell
+apps/web               Next.js 16 (App Router) PWA — dark design system, sidebar app
+                       shell, shadcn-style primitives, recharts; pages for every feature
 alembic/               async migrations
 infra/                 docker-compose (Postgres 16 + Redis 7)
 ```

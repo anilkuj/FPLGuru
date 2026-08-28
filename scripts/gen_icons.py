@@ -5,8 +5,8 @@ import zlib
 from pathlib import Path
 
 _OUT = Path(__file__).resolve().parents[1] / "apps/web/public"
-_BG = (11, 15, 25)        # #0b0f19  (matches manifest background_color)
-_FG = (56, 189, 248)      # #38bdf8  sky-400 accent block
+_BG = (11, 14, 20)        # #0b0f19  (matches manifest background_color)
+_FG = (124, 92, 255)      # #38bdf8  sky-400 accent block
 
 
 def _chunk(tag: bytes, data: bytes) -> bytes:

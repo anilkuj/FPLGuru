@@ -10,3 +10,7 @@ dist/
 *.egg-info/
 .coverage
 data/
+
+# Next 16 dev auto-generates these
+apps/web/AGENTS.md
+apps/web/CLAUDE.md

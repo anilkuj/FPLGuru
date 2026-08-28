@@ -2,6 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { DataTable } from "@/components/DataTable";
+import { EmptyState } from "@/components/EmptyState";
+import { PageHeader } from "@/components/PageHeader";
+import { Badge, Button, Card, Skeleton } from "@/components/ui";
 import { getEntry, getLive, type LiveSnapshot } from "@/lib/api";
 import { getStoredEntryId } from "@/lib/entry";
 
@@ -14,7 +18,6 @@ export function LiveBoard() {
   const [squad, setSquad] = useState<Set<number> | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // one-time: my squad (for the "my players" filter)
   useEffect(() => {
     const id = getStoredEntryId();
     if (id == null) return;
@@ -23,11 +26,9 @@ export function LiveBoard() {
       .catch(() => setSquad(null));
   }, []);
 
-  // live data: SSE, with a polling fallback if the stream errors
   useEffect(() => {
     let closed = false;
     getLive(API).then(setSnap).catch(() => undefined);
-
     const startPolling = () => {
       if (pollRef.current) return;
       pollRef.current = setInterval(() => {
@@ -39,7 +40,6 @@ export function LiveBoard() {
           .catch(() => setErr("Live updates unavailable — retrying."));
       }, 15000);
     };
-
     let es: EventSource | null = null;
     try {
       es = new EventSource(`${API}/gameweeks/current/live/stream`);
@@ -49,7 +49,7 @@ export function LiveBoard() {
           setSnap(JSON.parse(ev.data) as LiveSnapshot);
           setErr(null);
         } catch {
-          /* ignore keepalive / partial */
+          /* keepalive */
         }
       };
       es.onerror = () => {
@@ -59,7 +59,6 @@ export function LiveBoard() {
     } catch {
       startPolling();
     }
-
     return () => {
       closed = true;
       es?.close();
@@ -73,79 +72,102 @@ export function LiveBoard() {
     return mineOnly && squad ? all.filter((p) => squad.has(p.player_id)) : all;
   }, [snap, mineOnly, squad]);
 
-  if (!snap) return <p className="mt-4 text-sm text-gray-500">Loading…</p>;
-  if (snap.gameweek_id == null)
-    return <p className="mt-4 text-sm text-gray-500">No active gameweek.</p>;
-
   return (
     <>
-      <div className="mt-2 flex items-center gap-3 text-sm text-gray-500">
-        <span>
-          GW{snap.gameweek_id}
-          {snap.updated_at
-            ? ` · updated ${new Date(snap.updated_at).toLocaleTimeString()}`
-            : " · no live data yet"}
-        </span>
-        {squad && (
-          <label className="flex items-center gap-1">
-            <input
-              type="checkbox"
-              checked={mineOnly}
-              onChange={(e) => setMineOnly(e.target.checked)}
-            />
-            My players
-          </label>
-        )}
-      </div>
-      {err && <p className="mt-2 text-sm text-amber-600">{err}</p>}
+      <PageHeader
+        title="GW Live"
+        description="Live points and a BPS-based bonus projection, updating during matches."
+        actions={
+          <div className="flex items-center gap-2 text-sm text-fg-muted">
+            {snap?.updated_at ? (
+              <span className="flex items-center gap-1.5">
+                <span className="size-1.5 animate-pulse rounded-full bg-positive" />
+                {new Date(snap.updated_at).toLocaleTimeString()}
+              </span>
+            ) : (
+              <span>no live data yet</span>
+            )}
+            {squad && (
+              <Button
+                size="sm"
+                variant={mineOnly ? "default" : "outline"}
+                onClick={() => setMineOnly((v) => !v)}
+              >
+                My players
+              </Button>
+            )}
+          </div>
+        }
+      />
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        {snap.fixtures.map((f) => (
-          <span key={f.id} className="rounded border px-2 py-1 text-sm">
-            {f.home_team_id}&nbsp;
-            {f.started ? (f.home_score ?? 0) : "–"}
-            {" - "}
-            {f.started ? (f.away_score ?? 0) : "–"}&nbsp;{f.away_team_id}
-            <span className="ml-1 text-gray-400">
-              {f.finished ? "FT" : f.started ? `${f.minutes}'` : ""}
-            </span>
-          </span>
-        ))}
-      </div>
+      {err && <p className="text-sm text-warning">{err}</p>}
 
-      <div className="mt-4 overflow-x-auto">
-        <table className="text-sm border-collapse">
-          <thead>
-            <tr className="text-left">
-              <th className="px-2 py-1">Player</th>
-              <th className="px-2 py-1">Pos</th>
-              <th className="px-2 py-1 text-right">Min</th>
-              <th className="px-2 py-1 text-right">Pts</th>
-              <th className="px-2 py-1 text-right">Bonus*</th>
-              <th className="px-2 py-1 text-right">BPS</th>
-              <th className="px-2 py-1 text-right">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {players.map((p) => (
-              <tr key={p.player_id} className="border-t">
-                <td className="px-2 py-1 font-medium">{p.web_name}</td>
-                <td className="px-2 py-1 text-gray-500">{p.position}</td>
-                <td className="px-2 py-1 text-right">{p.minutes}</td>
-                <td className="px-2 py-1 text-right">{p.live_points}</td>
-                <td className="px-2 py-1 text-right text-gray-500">
-                  {p.projected_bonus ? `+${p.projected_bonus}` : "—"}
-                </td>
-                <td className="px-2 py-1 text-right text-gray-400">{p.bps}</td>
-                <td className="px-2 py-1 text-right font-semibold">{p.total_points}</td>
-              </tr>
+      {!snap && (
+        <div className="space-y-2">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-8 w-full" />
+          ))}
+        </div>
+      )}
+
+      {snap && snap.gameweek_id == null && (
+        <EmptyState title="No active gameweek" hint="Live scores appear once a gameweek is underway." />
+      )}
+
+      {snap && snap.gameweek_id != null && (
+        <>
+          <div className="mb-4 flex flex-wrap gap-2">
+            {snap.fixtures.map((f) => (
+              <Card key={f.id} className="px-2.5 py-1.5 text-sm">
+                <span className="tabular-nums">
+                  {f.home_team_id} {f.started ? (f.home_score ?? 0) : "–"} :{" "}
+                  {f.started ? (f.away_score ?? 0) : "–"} {f.away_team_id}
+                </span>
+                <span className="ml-2 text-xs text-fg-muted">
+                  {f.finished ? "FT" : f.started ? `${f.minutes}'` : ""}
+                </span>
+              </Card>
             ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="mt-2 text-xs text-gray-400">
-        *Bonus is a live BPS projection and can change until fixtures are final.
-      </p>
+          </div>
+
+          <Card className="p-1.5">
+            <DataTable
+              rows={players}
+              rowKey={(p) => p.player_id}
+              initialSort={{ key: "total_points", dir: "desc" }}
+              emptyTitle="No featured players yet"
+              columns={[
+                { key: "web_name", header: "Player", className: "font-medium" },
+                { key: "position", header: "Pos", className: "text-fg-muted" },
+                { key: "minutes", header: "Min", align: "right", sortable: true },
+                { key: "live_points", header: "Pts", align: "right", sortable: true },
+                {
+                  key: "projected_bonus",
+                  header: "Bonus",
+                  align: "right",
+                  render: (p) =>
+                    p.projected_bonus ? (
+                      <Badge variant="primary">+{p.projected_bonus}</Badge>
+                    ) : (
+                      <span className="text-fg-muted">—</span>
+                    ),
+                },
+                { key: "bps", header: "BPS", align: "right", sortable: true, className: "text-fg-muted" },
+                {
+                  key: "total_points",
+                  header: "Total",
+                  align: "right",
+                  sortable: true,
+                  className: "font-semibold",
+                },
+              ]}
+            />
+          </Card>
+          <p className="mt-2 text-xs text-fg-muted">
+            Bonus is a live BPS projection and can change until fixtures are final.
+          </p>
+        </>
+      )}
     </>
   );
 }

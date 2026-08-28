@@ -2,47 +2,34 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-import { NavAlerts } from "./NavAlerts";
+import { AppShell } from "@/components/AppShell";
+import { Providers } from "@/components/providers";
 import { PwaSetup } from "./PwaSetup";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
+const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "FPLGuru",
-  description: "FPL tracking + predictive analytics",
+  title: "FPLGuru — your FPL edge",
+  description: "Fantasy Premier League analytics: xP, FDR, live scores, AI captain, alerts.",
   manifest: "/manifest.json",
 };
 
-export const viewport: Viewport = { themeColor: "#0b0f19" };
+export const viewport: Viewport = { themeColor: "#0b0e14" };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      data-theme="dark"
+      suppressHydrationWarning
+      className={`${geistSans.variable} ${geistMono.variable} antialiased`}
     >
-      <body className="min-h-full flex flex-col">
-        <nav className="border-b px-6 py-3 text-sm flex gap-4">
-          <a href="/" className="font-semibold">FPLGuru</a>
-          <a href="/squad">Squad</a>
-          <span className="text-gray-400">xP</span>
-          <a href="/fdr">FDR</a>
-          <a href="/live">Live</a>
-          <a href="/leagues">Leagues</a>
-          <a href="/tools">Tools</a>
-          <a href="/captain">Captain</a>
-          <NavAlerts />
+      <body className="min-h-dvh bg-bg text-fg">
+        <Providers>
+          <AppShell>{children}</AppShell>
           <PwaSetup />
-        </nav>
-        {children}
+        </Providers>
       </body>
     </html>
   );
