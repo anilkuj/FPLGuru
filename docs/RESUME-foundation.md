@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** **PHASE 1 COMPLETE** + **P2h shipped.** ✅ F (PR #1), P1c (#2), P1a (#3), P1d (#4), P1b (#5), P1e (#6), P1f (#7), P1h (#8) merged to `main`. **P2h Community Leaderboard built on `feature/p2h-leaderboard`** (Tasks 1–7 done, Task 8 docs finishing; not yet pushed). Scope pivot 2026-08-27: product is **free, no Free/Pro tiers** — P1g + P4c dropped; P1a-auth optional. **Phase-2 blocked on decisions:** xG source (Understat vs Opta) → P2a→P2b; LLM provider + monthly budget → P2c/P2e/P3a-c; Telegram bot token → P2g. **Unblocked Phase-2 next:** P2i (Free Tools — the non-xG parts), P2d basic optimizer.
+**Status:** **PHASE 1 COMPLETE** + **P2h + P2i shipped.** ✅ F (#1), P1c (#2), P1a (#3), P1d (#4), P1b (#5), P1e (#6), P1f (#7), P1h (#8), P2h (#9) merged to `main`. **P2i Free Tools Suite built on `feature/p2i-free-tools`** (Tasks 1–5 done, Task 6 docs finishing; not yet pushed). Scope pivot 2026-08-27: product is **free, no Free/Pro tiers** — P1g + P4c dropped; P1a-auth optional. **xG source decided 2026-08-27 → PitchAPI** (`pitchapi.dev`, `X-API-KEY`, test key held by user in `FPLGURU_PITCHAPI_KEY` — never committed; opaque `p_` player ids need fuzzy FPL mapping) — **P2a is now unblocked.** Still blocked: LLM provider + monthly budget (P2c/P2e/P3a-c), Telegram bot token (P2g). **Unblocked Phase-2 next:** P2a (PitchAPI ingestion), P2d optimizer, P2f H2H.
 **Last updated:** 2026-08-27.
-**Branch:** `feature/p2h-leaderboard` (off `main`), not pushed.
+**Branch:** `feature/p2i-free-tools` (off `main`), not pushed.
 
 ---
 
@@ -220,7 +220,27 @@ See `git log feature/p2h-leaderboard` for exact SHAs.
 
 **Deviation from the plan:** the `normalize_entry` change (adds a `leagues` key) broke `sync_entry`'s `LinkedTeam(**ent, ...)` — Task 2's commit was briefly red for that reason; Task 3's `ent.pop("leagues", [])` fixed it. The branch HEAD is green; the intermediate commit is not (squash-merge, so it doesn't reach `main`).
 
-**Verification (repo state after Task 7):** `python -m pytest -q -W error` → **156 passed**, no warnings; `ruff` clean; `alembic check` clean; web `vitest run` → 14 passed; `next build` → success (`/leagues` static, `/leagues/[id]` dynamic — fetches client-side). **Live end-to-end not verified** (needs a linked team + a `sync_league_standings` run against the real API).
+**Verification (repo state after Task 7):** `python -m pytest -q -W error` → **156 passed**, no warnings; `ruff` clean; `alembic check` clean; web `vitest run` → 14 passed; `next build` → success (`/leagues` static, `/leagues/[id]` dynamic — fetches client-side). **Merged to `main` as PR #9 (`4a8f6ac`).**
+
+---
+
+## P2i — Free Tools Suite (branch `feature/p2i-free-tools`)
+
+Plan: [`docs/plans/2026-08-27-p2i-free-tools.md`](plans/2026-08-27-p2i-free-tools.md). Executed inline, TDD per task.
+
+| Task | What | Status |
+|---|---|---|
+| 1 | `players` gains `transfers_in_event` / `transfers_out_event` / `cost_change_event` / `form` (`0009`) + `normalize_players` | ✅ |
+| 2 | `packages/tools` (`fplguru-tools`) — `trends`, `template_xi`, `template_diff`, `gw_calendar`, `pick_overpowered_xi` (pure; `_fill` picks the best formation by summed metric) | ✅ |
+| 3 | `GET /trends` \| `/template` \| `/entries/{id}/template-diff` \| `/calendar?from_gw=&to_gw=` \| `/overpowered?horizon=` | ✅ |
+| 4 | web `getTrends` / `getTemplate` / `getCalendar` / `getOverpowered` clients + types | ✅ |
+| 5 | web `/tools` tabbed hub (Trends / Template / Calendar / Overpowered XI) + nav link | ✅ |
+| 6 | docs (README Tools section, `.env.example` PitchAPI vars, master plan ✅ + P2a source recorded, this file) | 🔧 finishing |
+See `git log feature/p2i-free-tools` for exact SHAs.
+
+**Scope:** the master plan's fifth tool — **FDR/xG/CS Snapshot — is deferred to P2a** (PitchAPI xG ingestion). FDR alone already ships at `GET /fdr`. `pick_overpowered_xi` / `template_xi` ignore the £100m budget + max-3-per-club rule for now (documented follow-up). Formations tried: `_FORMATIONS` in `fplguru_tools` (3-4-3 … 5-3-2); the pick is whichever valid formation maximises the summed metric (ownership for template, xP for overpowered).
+
+**Verification (repo state after Task 5):** `python -m pytest -q -W error` → **168 passed**, no warnings; `ruff` clean; `alembic check` clean; web `vitest run` → 17 passed; `next build` → success (`/tools` static).
 
 ---
 
