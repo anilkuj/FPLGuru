@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 import pandas as pd
+from sqlalchemy import func, select
 
 from fplguru_core.models import (
     Fixture,
@@ -14,7 +15,6 @@ from fplguru_core.models import (
 )
 from fplguru_ml.features import FEATURE_NAMES_ADV
 from fplguru_ml.model_advanced import train_advanced
-from sqlalchemy import func, select
 
 
 def _tiny_adv_model(tmp_path):
