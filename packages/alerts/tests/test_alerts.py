@@ -1,4 +1,11 @@
-from fplguru_alerts import availability_alerts, dgw_bgw_alerts, score_alert
+from datetime import UTC, datetime
+
+from fplguru_alerts import (
+    availability_alerts,
+    deadline_reminder_alerts,
+    dgw_bgw_alerts,
+    score_alert,
+)
 
 
 def test_score_captain_hard_out_pre_deadline_clamps_to_100():
@@ -56,3 +63,39 @@ def test_dgw_bgw_alerts_from_owned_teams_and_fixture_counts():
     assert out["bgw:11:9"]["type"] == "bgw"
     assert "Isak" in out["bgw:11:9"]["body"] and "Gordon" in out["bgw:11:9"]["body"]
     assert out["bgw:11:9"]["payload"]["player_names"] == ["Isak", "Gordon"]
+
+
+def test_score_deadline_tight_pre_deadline():
+    a = {"type": "deadline", "payload": {"minutes_left": 25}}
+    assert score_alert(a, in_xi=False, is_captain=False, before_deadline=True) == 55 + 15 + 10
+
+
+def test_score_deadline_far():
+    a = {"type": "deadline", "payload": {"minutes_left": 800}}
+    assert score_alert(a, in_xi=False, is_captain=False, before_deadline=True) == 55 + 10
+
+
+def test_deadline_reminder_fires_for_offsets_already_inside_window():
+    now = datetime(2026, 8, 30, 10, 40, tzinfo=UTC)
+    deadline = datetime(2026, 8, 30, 11, 0, tzinfo=UTC)  # 20 min away
+    out = {a["dedup_key"]: a for a in deadline_reminder_alerts(
+        deadline, now, [1440, 120, 60, 30], gameweek_id=4)}
+    assert set(out) == {"deadline:4:1440", "deadline:4:120", "deadline:4:60", "deadline:4:30"}
+    assert out["deadline:4:30"]["type"] == "deadline"
+    assert out["deadline:4:30"]["payload"]["minutes_left"] == 20
+    assert out["deadline:4:30"]["gameweek_id"] == 4
+    assert "20 min" in out["deadline:4:30"]["body"]
+
+
+def test_deadline_reminder_excludes_past_and_too_early():
+    now = datetime(2026, 8, 30, 8, 0, tzinfo=UTC)
+    deadline = datetime(2026, 8, 30, 11, 0, tzinfo=UTC)  # 180 min away
+    out = {a["dedup_key"] for a in deadline_reminder_alerts(
+        deadline, now, [1440, 120, 30], gameweek_id=4)}
+    assert out == {"deadline:4:1440"}
+
+
+def test_deadline_reminder_none_after_deadline():
+    now = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)
+    deadline = datetime(2026, 8, 30, 11, 0, tzinfo=UTC)
+    assert deadline_reminder_alerts(deadline, now, [1440, 30], gameweek_id=4) == []

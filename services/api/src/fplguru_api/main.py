@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from fplguru_core.db import dispose_engine, get_sessionmaker
 from fplguru_core.models import (
+    DEFAULT_REMINDER_OFFSETS,
     Alert,
     DataSyncLog,
     EntryGwHistory,
@@ -317,6 +318,12 @@ class _SeenBody(BaseModel):
 
 class _SettingsBody(BaseModel):
     alert_cap: int | None = None
+    reminder_offsets: list[int] | None = None
+
+
+def _clean_offsets(raw: list[int]) -> list[int]:
+    vals = sorted({int(o) for o in raw if 0 < int(o) <= 4320}, reverse=True)
+    return vals[:7]
 
 
 def _alert_json(a: Alert) -> dict:
@@ -362,13 +369,29 @@ async def mark_alerts_seen(
     return {"marked": len(rows)}
 
 
+@app.get("/entries/{entry_id}/settings")
+async def get_entry_settings(entry_id: int, db: AsyncSession = Depends(get_db)) -> dict:
+    lt = await _linked_or_404(db, entry_id)
+    return {
+        "fpl_entry_id": lt.fpl_entry_id,
+        "alert_cap": lt.alert_cap,
+        "reminder_offsets": lt.reminder_offsets or list(DEFAULT_REMINDER_OFFSETS),
+    }
+
+
 @app.patch("/entries/{entry_id}/settings")
 async def patch_entry_settings(
     entry_id: int, body: _SettingsBody, db: AsyncSession = Depends(get_db)
 ) -> dict:
     lt = await _linked_or_404(db, entry_id)
     lt.alert_cap = body.alert_cap
-    result = {"fpl_entry_id": lt.fpl_entry_id, "alert_cap": body.alert_cap}
+    if body.reminder_offsets is not None:
+        lt.reminder_offsets = _clean_offsets(body.reminder_offsets)
+    result = {
+        "fpl_entry_id": lt.fpl_entry_id,
+        "alert_cap": body.alert_cap,
+        "reminder_offsets": lt.reminder_offsets or list(DEFAULT_REMINDER_OFFSETS),
+    }
     await db.commit()
     return result
 

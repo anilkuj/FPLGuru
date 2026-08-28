@@ -5,9 +5,15 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from fplguru_alerts import availability_alerts, dgw_bgw_alerts, score_alert
+from fplguru_alerts import (
+    availability_alerts,
+    deadline_reminder_alerts,
+    dgw_bgw_alerts,
+    score_alert,
+)
 from fplguru_core.db import dispose_engine, get_sessionmaker, reset_state
 from fplguru_core.models import (
+    DEFAULT_REMINDER_OFFSETS,
     Alert,
     DataSyncLog,
     EntryPick,
@@ -324,7 +330,12 @@ async def _generate_alerts() -> None:
             if gw is None:
                 await _record(session, "alerts", "ok", started, "no current gameweek")
                 return
-            before_deadline = gw.deadline_time > datetime.now(UTC)
+            now = datetime.now(UTC)
+            before_deadline = gw.deadline_time > now
+            next_dl_gw = (await session.execute(
+                select(Gameweek).where(Gameweek.deadline_time > now)
+                .order_by(Gameweek.deadline_time).limit(1)
+            )).scalar_one_or_none()
 
             teams = (await session.execute(select(LinkedTeam))).scalars().all()
             fx_counts: dict[int, int] = {}
@@ -364,6 +375,12 @@ async def _generate_alerts() -> None:
                     generated += dgw_bgw_alerts(
                         owned_teams, fx_counts, names_by_team, gameweek_id=gw.id
                     )
+                if next_dl_gw is not None:
+                    generated += deadline_reminder_alerts(
+                        next_dl_gw.deadline_time, now,
+                        lt.reminder_offsets or list(DEFAULT_REMINDER_OFFSETS),
+                        gameweek_id=next_dl_gw.id,
+                    )
                 rows = []
                 for a in generated:
                     if a["player_id"]:
@@ -395,13 +412,16 @@ async def _generate_alerts() -> None:
                 await _upsert_alerts(session, rows)
                 total += len(rows)
 
-                gw_alerts = (await session.execute(
-                    select(Alert)
-                    .where(Alert.linked_team_id == lt.id, Alert.gameweek_id == gw.id)
-                    .order_by(Alert.priority.desc(), Alert.id)
-                )).scalars().all()
-                for i, row in enumerate(gw_alerts):
-                    row.suppressed = lt.alert_cap is not None and i >= lt.alert_cap
+                # cap application per distinct gameweek this team has alerts in
+                team_gw_ids = {r["gameweek_id"] for r in rows} | {gw.id}
+                for gwid in team_gw_ids:
+                    ranked = (await session.execute(
+                        select(Alert)
+                        .where(Alert.linked_team_id == lt.id, Alert.gameweek_id == gwid)
+                        .order_by(Alert.priority.desc(), Alert.id)
+                    )).scalars().all()
+                    for i, row in enumerate(ranked):
+                        row.suppressed = lt.alert_cap is not None and i >= lt.alert_cap
 
             await _record(
                 session, "alerts", "ok", started,

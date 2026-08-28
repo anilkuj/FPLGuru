@@ -1,11 +1,17 @@
 """Pure alert generation + priority scoring — no DB, no network."""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
-__all__ = ["score_alert", "availability_alerts", "dgw_bgw_alerts"]
+__all__ = [
+    "score_alert",
+    "availability_alerts",
+    "dgw_bgw_alerts",
+    "deadline_reminder_alerts",
+]
 
-_BASE = {"availability": 60, "bgw": 45, "dgw": 40}
+_BASE = {"availability": 60, "bgw": 45, "dgw": 40, "deadline": 55}
 _HARD_OUT = {"i", "s", "u"}
 
 _STATUS_LABEL = {
@@ -22,6 +28,8 @@ def score_alert(alert: dict[str, Any], *, in_xi: bool, is_captain: bool,
     elif in_xi:
         score += 15
     if alert["type"] == "availability" and alert.get("payload", {}).get("status") in _HARD_OUT:
+        score += 15
+    if alert["type"] == "deadline" and alert.get("payload", {}).get("minutes_left", 1e9) <= 60:
         score += 15
     if before_deadline:
         score += 10
@@ -83,4 +91,38 @@ def dgw_bgw_alerts(owned_team_ids: set[int], fixture_counts: dict[int, int],
             "body": f"{label} for {who} ({n} fixture{'s' if n != 1 else ''}).",
             "payload": {"team_id": team_id, "fixtures": n, "player_names": names},
         })
+    return out
+
+
+def _humanize(minutes: int) -> str:
+    if minutes >= 1440:
+        d = round(minutes / 1440)
+        return f"{d} day{'s' if d != 1 else ''}"
+    if minutes >= 120:
+        return f"{round(minutes / 60)} hours"
+    if minutes >= 60:
+        return "1 hour"
+    return f"{minutes} min"
+
+
+def deadline_reminder_alerts(deadline: datetime, now: datetime,
+                             offsets: list[int], *, gameweek_id: int) -> list[dict]:
+    minutes_left = (deadline - now).total_seconds() / 60.0
+    if minutes_left < 0:
+        return []
+    left = int(round(minutes_left))
+    out: list[dict] = []
+    for offset in sorted({int(o) for o in offsets}):
+        if minutes_left <= offset:
+            out.append({
+                "type": "deadline",
+                "dedup_key": f"deadline:{gameweek_id}:{offset}",
+                "gameweek_id": gameweek_id,
+                "player_id": None,
+                "title": f"GW{gameweek_id} deadline in ~{_humanize(left)}",
+                "body": (
+                    f"The GW{gameweek_id} deadline is in about {left} min — set your team."
+                ),
+                "payload": {"offset": offset, "minutes_left": left},
+            })
     return out

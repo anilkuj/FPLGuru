@@ -34,6 +34,10 @@ class _TimestampMixin:
     )
 
 
+# minutes before a gameweek deadline at which to send a reminder (24h / 2h / 1h / 30m)
+DEFAULT_REMINDER_OFFSETS: tuple[int, ...] = (1440, 120, 60, 30)
+
+
 class Team(_TimestampMixin, Base):
     __tablename__ = "teams"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # FPL team id
@@ -197,6 +201,10 @@ class LinkedTeam(_TimestampMixin, Base):
     favourite_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     alert_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = uncapped
+    # minutes-before-deadline reminder offsets; None/[] treated as DEFAULT_REMINDER_OFFSETS
+    reminder_offsets: Mapped[list | None] = mapped_column(
+        JSON, default=lambda: list(DEFAULT_REMINDER_OFFSETS), nullable=True,
+    )
 
 
 class EntryGwHistory(_TimestampMixin, Base):
