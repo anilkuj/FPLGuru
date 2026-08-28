@@ -93,6 +93,41 @@ export function getOptimize(base: string, entryId: number, horizon = 5, maxTrans
   ).then(asJson<Optimize>);
 }
 
+export type PlanSummary = {
+  id: number;
+  name: string;
+  created_at: string;
+  horizon: number;
+  max_transfers: number;
+  model: string;
+};
+export type SavedPlan = PlanSummary & { plan: Optimize };
+export function listPlans(base: string, entryId: number) {
+  return fetch(`${base}/entries/${entryId}/plans`, { cache: "no-store" }).then(
+    asJson<PlanSummary[]>,
+  );
+}
+export function createPlan(
+  base: string,
+  entryId: number,
+  body: { name: string; horizon: number; max_transfers: number },
+) {
+  return fetch(`${base}/entries/${entryId}/plans`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  }).then(asJson<SavedPlan>);
+}
+export function getPlan(base: string, entryId: number, planId: number) {
+  return fetch(`${base}/entries/${entryId}/plans/${planId}`, { cache: "no-store" }).then(
+    asJson<SavedPlan>,
+  );
+}
+export async function deletePlan(base: string, entryId: number, planId: number) {
+  const r = await fetch(`${base}/entries/${entryId}/plans/${planId}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(`http ${r.status}`);
+}
+
 export type H2HPlayer = { player_id: number; web_name: string; position: string; xp: number };
 export type H2H = {
   entry_id: number;

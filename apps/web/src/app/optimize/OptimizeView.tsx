@@ -1,12 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { DataTable } from "@/components/DataTable";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
-import { Badge, Button, Card, Skeleton } from "@/components/ui";
-import { getOptimize, type Optimize } from "@/lib/api";
+import { Badge, Button, Card, Input, Skeleton } from "@/components/ui";
+import {
+  createPlan,
+  deletePlan,
+  getOptimize,
+  getPlan,
+  listPlans,
+  type Optimize,
+  type PlanSummary,
+} from "@/lib/api";
 import { getStoredEntryId } from "@/lib/entry";
 import { getPref, setPref } from "@/lib/prefs";
 
@@ -22,25 +30,63 @@ const CHIP_LABEL: Record<string, string> = {
 };
 
 export function OptimizeView() {
+  const entryId = typeof window !== "undefined" ? getStoredEntryId() : null;
   const [data, setData] = useState<Optimize | null>(null);
   const [state, setState] = useState<"loading" | "nolink" | "error" | "ok">("loading");
   const [horizon, setHorizon] = useState(() => getPref("optHorizon", 5));
   const [maxT, setMaxT] = useState(() => getPref("optMaxTransfers", 2));
+  const [plans, setPlans] = useState<PlanSummary[]>([]);
+  const [planName, setPlanName] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const refreshPlans = useCallback(() => {
+    if (!entryId) return;
+    listPlans(API, entryId).then(setPlans).catch(() => undefined);
+  }, [entryId]);
 
   useEffect(() => {
-    const id = getStoredEntryId();
-    if (!id) {
+    if (!entryId) {
       setState("nolink");
       return;
     }
     setState("loading");
-    getOptimize(API, id, horizon, maxT)
+    getOptimize(API, entryId, horizon, maxT)
       .then((d) => {
         setData(d);
         setState("ok");
       })
       .catch(() => setState("error"));
-  }, [horizon, maxT]);
+  }, [entryId, horizon, maxT]);
+
+  useEffect(refreshPlans, [refreshPlans]);
+
+  async function savePlan() {
+    if (!entryId || !data) return;
+    setSaving(true);
+    try {
+      const name = planName.trim() || `GW·${horizon} · ${new Date().toLocaleDateString()}`;
+      await createPlan(API, entryId, { name, horizon, max_transfers: maxT });
+      setPlanName("");
+      refreshPlans();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function openPlan(id: number) {
+    if (!entryId) return;
+    const full = await getPlan(API, entryId, id);
+    setData(full.plan);
+    setHorizon(full.horizon);
+    setMaxT(full.max_transfers);
+    setState("ok");
+  }
+
+  async function removePlan(id: number) {
+    if (!entryId) return;
+    await deletePlan(API, entryId, id).catch(() => undefined);
+    refreshPlans();
+  }
 
   if (state === "nolink")
     return (
@@ -83,6 +129,49 @@ export function OptimizeView() {
           }}
         />
       </div>
+
+      <Card className="mb-4 p-4">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <h2 className="text-sm font-semibold">Saved plans</h2>
+          <Input
+            className="h-8 w-56"
+            placeholder="name this plan"
+            value={planName}
+            onChange={(e) => setPlanName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && savePlan()}
+          />
+          <Button size="sm" onClick={savePlan} disabled={saving || !data}>
+            Save current
+          </Button>
+        </div>
+        {plans.length === 0 ? (
+          <p className="text-xs text-fg-muted">No saved plans yet.</p>
+        ) : (
+          <ul className="divide-y divide-border text-sm">
+            {plans.map((p) => (
+              <li key={p.id} className="flex items-center justify-between py-1.5">
+                <span>
+                  <span className="font-medium">{p.name}</span>
+                  <span className="ml-2 text-xs text-fg-muted">
+                    {new Date(p.created_at).toLocaleDateString()} · {p.horizon} GW ·{" "}
+                    {p.max_transfers} FT
+                  </span>
+                </span>
+                <span className="flex gap-1">
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs"
+                    onClick={() => openPlan(p.id)}>
+                    Open
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-danger"
+                    onClick={() => removePlan(p.id)}>
+                    Delete
+                  </Button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
 
       {state === "error" && <p className="text-sm text-danger">Could not load the optimizer.</p>}
       {state === "loading" && (
