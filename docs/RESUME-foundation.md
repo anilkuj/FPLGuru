@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** **PHASE 1 COMPLETE** + **P2h + P2i shipped.** ✅ F (#1), P1c (#2), P1a (#3), P1d (#4), P1b (#5), P1e (#6), P1f (#7), P1h (#8), P2h (#9) merged to `main`. **P2i Free Tools Suite built on `feature/p2i-free-tools`** (Tasks 1–5 done, Task 6 docs finishing; not yet pushed). Scope pivot 2026-08-27: product is **free, no Free/Pro tiers** — P1g + P4c dropped; P1a-auth optional. **xG source decided 2026-08-27 → PitchAPI** (`pitchapi.dev`, `X-API-KEY`, test key held by user in `FPLGURU_PITCHAPI_KEY` — never committed; opaque `p_` player ids need fuzzy FPL mapping) — **P2a is now unblocked.** Still blocked: LLM provider + monthly budget (P2c/P2e/P3a-c), Telegram bot token (P2g). **Unblocked Phase-2 next:** P2a (PitchAPI ingestion), P2d optimizer, P2f H2H.
+**Status:** **PHASE 1 COMPLETE** + **P2h, P2i, P2e shipped.** ✅ F (#1), P1c (#2), P1a (#3), P1d (#4), P1b (#5), P1e (#6), P1f (#7), P1h (#8), P2h (#9), P2i (#10) merged to `main`. **P2e AI Captain built on `feature/p2e-ai-captain`** (Tasks 1–5 done, Task 6 docs finishing; not yet pushed). Scope pivot 2026-08-27: **free, no tiers** — P1g + P4c dropped; P1a-auth optional. **Decided 2026-08-27:** xG source → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`, opaque `p_` ids need fuzzy FPL mapping — P2a unblocked); LLM provider → **Google Gemini** (REST, `FPLGURU_GEMINI_KEY`, `$5/mo` default cap; reusable `fplguru-llm` + `llm_calls` ledger + `generate_within_budget` shipped in P2e). **Telegram (P2g) deferred by the user.** **Unblocked next:** P2a (PitchAPI ingestion → P2b Advanced xP), P2d optimizer, P2f H2H, P2c (LLM explanation, needs P2b).
 **Last updated:** 2026-08-27.
-**Branch:** `feature/p2i-free-tools` (off `main`), not pushed.
+**Branch:** `feature/p2e-ai-captain` (off `main`), not pushed.
 
 ---
 
@@ -240,7 +240,27 @@ See `git log feature/p2i-free-tools` for exact SHAs.
 
 **Scope:** the master plan's fifth tool — **FDR/xG/CS Snapshot — is deferred to P2a** (PitchAPI xG ingestion). FDR alone already ships at `GET /fdr`. `pick_overpowered_xi` / `template_xi` ignore the £100m budget + max-3-per-club rule for now (documented follow-up). Formations tried: `_FORMATIONS` in `fplguru_tools` (3-4-3 … 5-3-2); the pick is whichever valid formation maximises the summed metric (ownership for template, xP for overpowered).
 
-**Verification (repo state after Task 5):** `python -m pytest -q -W error` → **168 passed**, no warnings; `ruff` clean; `alembic check` clean; web `vitest run` → 17 passed; `next build` → success (`/tools` static).
+**Verification (repo state after Task 5):** `python -m pytest -q -W error` → **168 passed**, no warnings; `ruff` clean; `alembic check` clean; web `vitest run` → 17 passed; `next build` → success (`/tools` static). **Merged to `main` as PR #10 (`cdad805`).**
+
+---
+
+## P2e — AI Captain Recommendations (branch `feature/p2e-ai-captain`)
+
+Plan: [`docs/plans/2026-08-27-p2e-ai-captain.md`](plans/2026-08-27-p2e-ai-captain.md). Executed inline, TDD per task. **First LLM feature** — the user supplied a Gemini API key 2026-08-27.
+
+| Task | What | Status |
+|---|---|---|
+| 1 | `packages/llm` (`fplguru-llm`) — async **Gemini REST** client (`GeminiClient.generate → (text, pt, ct)`, tenacity retry 429/5xx) + `estimate_cost` price table + `LlmError` | ✅ |
+| 2 | `packages/captain` (`fplguru-captain`) — pure `rank_captains` (constrained = XI only; unconstrained = any player, incl. your bench) + `rationale_prompt` | ✅ |
+| 3 | `llm_calls` (budget ledger) + `captain_rationale` (cache) tables (`0010`) + `gemini_*` / `llm_monthly_usd_cap` settings | ✅ |
+| 4 | `services/api/llm.py::generate_within_budget` (skips → `None` when no key / over month cap / on `LlmError`; logs every call) + `GET /entries/{id}/captain?horizon=` | ✅ |
+| 5 | web `getCaptain` + `/captain` page (two columns, horizon `<select>` persisted, `rationale_source` note) + nav | ✅ |
+| 6 | docs (README AI Captain, `.env.example` Gemini vars, master plan ✅ + LLM provider recorded, this file) | 🔧 finishing |
+See `git log feature/p2e-ai-captain` for exact SHAs.
+
+**Design:** ranks on **Basic xP** (`PlayerGwPrediction`, `horizon` 1–5) — no P2b/P2c dependency for v1. Per request, the #1 constrained + #1 unconstrained pick get a rationale: check `captain_rationale` cache for `(player_id, current_gw, kind)`; miss → `generate_within_budget` (Gemini); text → cache it; `None` → `_template_rationale`. `rationale_source` is `"llm"` if either pick used the LLM/cache, else `"template"`. Monthly spend = `SUM(llm_calls.est_cost_usd)` since the 1st of the month ≥ `llm_monthly_usd_cap` → skip. **No key set (the default) → always templated, no error.**
+
+**Verification (repo state after Task 5):** `python -m pytest -q -W error` → **179 passed**, no warnings; `ruff` clean; `alembic check` clean; web `vitest run` → 18 passed; `next build` → success (`/captain` static). **Live Gemini call not exercised** — needs `FPLGURU_GEMINI_KEY` set + `compute_xp` predictions present.
 
 ---
 
