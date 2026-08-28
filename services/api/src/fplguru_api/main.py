@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fplguru_entrysync import sync_entry
 from fplguru_fdr import compute_fdr
@@ -29,6 +30,7 @@ from fplguru_core.models import (
     Player,
     PlayerGwLive,
     PlayerGwPrediction,
+    PlayerXg,
     PushSubscription,
     Team,
 )
@@ -51,6 +53,12 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="FPLGuru API", version="0.1.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_settings().cors_origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
@@ -175,7 +183,7 @@ async def live_stream(request: Request) -> StreamingResponse:
 @app.get("/status")
 async def status(db: AsyncSession = Depends(get_db)) -> dict:
     sources: dict[str, dict] = {}
-    known = {"fpl_bootstrap", "fpl_fixtures", "live_poll"}
+    known = {"fpl_bootstrap", "fpl_fixtures", "live_poll", "pitch_xg"}
     present = set((await db.execute(select(distinct(DataSyncLog.source)))).scalars().all())
     for source in sorted(known | present):
         row = (
@@ -689,6 +697,58 @@ async def overpowered(horizon: int = Query(5, ge=1, le=10),
         if pd["player_id"] in xp_by_player
     ]
     return pick_overpowered_xi(players)
+
+
+def _xg_row(r: PlayerXg) -> dict:
+    return {"gameweek_id": r.gameweek_id, "fixture_id": r.fixture_id, "minutes": r.minutes,
+            "xg": r.xg, "xg_ot": r.xg_ot, "xag": r.xag, "key_passes": r.key_passes,
+            "chances_created": r.chances_created, "vaep": r.vaep}
+
+
+@app.get("/players/{player_id}/xg")
+async def player_xg(player_id: int, last: int = Query(6, ge=1, le=38),
+                    db: AsyncSession = Depends(get_db)) -> dict:
+    player = (await db.execute(
+        select(Player).where(Player.id == player_id))).scalar_one_or_none()
+    rows = (await db.execute(
+        select(PlayerXg).where(PlayerXg.player_id == player_id)
+        .order_by(PlayerXg.gameweek_id.desc(), PlayerXg.fixture_id.desc())
+        .limit(last)
+    )).scalars().all()
+    if player is None or not rows:
+        raise HTTPException(status_code=404, detail="no xg for player")
+    tot = {k: round(sum(getattr(r, k) for r in rows), 3) for k in ("xg", "xg_ot", "xag")}
+    tot["minutes"] = sum(r.minutes for r in rows)
+    return {"player_id": player.id, "web_name": player.web_name, "position": player.position,
+            "totals": tot, "per_gw": [_xg_row(r) for r in rows]}
+
+
+@app.get("/xg-snapshot")
+async def xg_snapshot(last: int = Query(6, ge=1, le=15),
+                      position: str | None = Query(None),
+                      db: AsyncSession = Depends(get_db)) -> dict:
+    max_gw = (await db.execute(select(func.max(PlayerXg.gameweek_id)))).scalar()
+    if max_gw is None:
+        return {"from_gw": None, "players": []}
+    lo = max_gw - last + 1
+    q = (
+        select(Player, func.sum(PlayerXg.xg), func.sum(PlayerXg.xag),
+               func.sum(PlayerXg.minutes))
+        .join(PlayerXg, PlayerXg.player_id == Player.id)
+        .where(PlayerXg.gameweek_id >= lo)
+        .group_by(Player.id)
+    )
+    if position:
+        q = q.where(Player.position == position)
+    rows = (await db.execute(q)).all()
+    players = sorted(
+        ({"player_id": p.id, "web_name": p.web_name, "position": p.position,
+          "team_id": p.team_id, "xg": round(float(xg or 0), 2),
+          "xag": round(float(xa or 0), 2), "minutes": int(mins or 0)}
+         for p, xg, xa, mins in rows),
+        key=lambda d: d["xg"] + d["xag"], reverse=True,
+    )
+    return {"from_gw": lo, "players": players}
 
 
 @app.get("/players/{player_id}/xp")

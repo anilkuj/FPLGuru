@@ -25,7 +25,7 @@ services/api           FastAPI: /health /ready /gameweeks /gameweeks/current /st
                        /push/vapid-public-key /entries/{id}/push/subscribe
 services/worker        Celery worker + Beat: sync_bootstrap / sync_fixtures / sync_gw_stats
                        / compute_xp / sync_linked_teams / poll_live / generate_alerts
-                       / deliver_push / sync_league_standings
+                       / deliver_push / sync_league_standings / sync_xg
 apps/web               Next.js 16 (App Router) PWA shell
 alembic/               async migrations
 infra/                 docker-compose (Postgres 16 + Redis 7)
@@ -204,6 +204,22 @@ player) — by cumulative Basic xP over the horizon, and attaches a plain-Englis
 `captain_rationale`; Gemini spend is tracked in `llm_calls` and calls are **skipped once
 `FPLGURU_LLM_MONTHLY_USD_CAP` is reached for the calendar month**. With no `FPLGURU_GEMINI_KEY`
 set, the endpoint still works and returns a templated summary (`rationale_source: "template"`).
+
+## xG (PitchAPI)
+
+`sync_xg` (Beat, daily) resolves finished fixtures to PitchAPI matches, maps ids
+(`pitch_team_map` / `pitch_player_map` — auto surname+initial+team; fix misses with
+`scripts/pitch_map.py`), and upserts `player_xg` (xG = summed shot `expected_goals`, plus xag /
+minutes / key passes from the advanced-players endpoint).
+
+```bash
+#   GET /players/{id}/xg?last=6           -> recent per-GW xG/xA + totals
+#   GET /xg-snapshot?last=6&position=MID  -> players ranked by xG+xA over the last N GWs
+```
+
+Blank `FPLGURU_PITCHAPI_KEY` → the task is a no-op. The response-shape assumptions come from the
+published docs — run `python scripts/pitch_probe.py YYYY-MM-DD` to confirm them against a live
+response before the first real sync. PitchAPI errors show up as a `pitch_xg` row on `/status`.
 
 ## PWA
 

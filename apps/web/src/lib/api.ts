@@ -296,3 +296,20 @@ export function getCaptain(base: string, entryId: number, horizon = 3) {
     cache: "no-store",
   }).then(asJson<CaptainAdvice>);
 }
+
+export type XgRow = {
+  player_id: number;
+  web_name: string;
+  position: string;
+  team_id: number;
+  xg: number;
+  xag: number;
+  minutes: number;
+};
+export type XgSnapshot = { from_gw: number | null; players: XgRow[] };
+
+export function getXgSnapshot(base: string, last = 6, position?: string) {
+  const q = new URLSearchParams({ last: String(last) });
+  if (position) q.set("position", position);
+  return fetch(`${base}/xg-snapshot?${q}`, { cache: "no-store" }).then(asJson<XgSnapshot>);
+}
