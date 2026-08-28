@@ -39,6 +39,7 @@ from fplguru_core.models import (
 )
 from fplguru_core.settings import get_settings
 from fplguru_explain import DRIVER_PHRASES, explanation_prompt, template_explanation
+from fplguru_h2h import compare_squads
 from fplguru_ml.eval import pointwise_metrics
 from fplguru_ml.features import wmean
 from fplguru_ml.model_advanced import AdvancedXP
@@ -868,6 +869,55 @@ async def model_transparency(last: int = Query(6, ge=1, le=19),
         "by_position": metric_map(buckets), "rolling": metric_map(roll),
         "last_gw": {"gameweek_id": last_id, "rows": last_rows[:40]} if last_rows else None,
     }
+
+
+@app.get("/entries/{entry_id}/h2h/{opponent_id}")
+async def entry_h2h(entry_id: int, opponent_id: int,
+                    horizon: int = Query(5, ge=1, le=10),
+                    model: str = Query("advanced", pattern="^(auto|basic|advanced)$"),
+                    db: AsyncSession = Depends(get_db)) -> dict:
+    lt = await _linked_or_404(db, entry_id)
+    mv = await _resolve_model_version(db, model)
+    try:
+        await sync_entry(opponent_id)
+    except Exception as exc:  # invalid opponent id / FPL unreachable
+        raise HTTPException(status_code=502, detail="could not fetch opponent") from exc
+    opp = (await db.execute(
+        select(LinkedTeam).where(LinkedTeam.fpl_entry_id == opponent_id)
+    )).scalar_one_or_none()
+    if opp is None:
+        raise HTTPException(status_code=404, detail="opponent not found")
+
+    xp_by_player = dict((await db.execute(
+        select(PlayerGwPrediction.player_id, func.sum(PlayerGwPrediction.xp))
+        .where(PlayerGwPrediction.model_version == mv,
+               PlayerGwPrediction.horizon_gw <= horizon)
+        .group_by(PlayerGwPrediction.player_id)
+    )).all())
+
+    async def squad(team_id: int) -> list[dict]:
+        latest = (await db.execute(
+            select(func.max(EntryPick.gameweek_id))
+            .where(EntryPick.linked_team_id == team_id)
+        )).scalar()
+        rows = (await db.execute(
+            select(Player).join(EntryPick, EntryPick.player_id == Player.id)
+            .where(EntryPick.linked_team_id == team_id, EntryPick.gameweek_id == latest)
+        )).scalars().all()
+        return [{"player_id": p.id, "web_name": p.web_name, "position": p.position,
+                 "now_cost": p.now_cost, "team_id": p.team_id,
+                 "xp": round(float(xp_by_player.get(p.id, 0.0)), 2)} for p in rows]
+
+    mine = await squad(lt.id)
+    theirs = await squad(opp.id)
+    if not mine:
+        raise HTTPException(status_code=404, detail="no picks for this entry")
+    if not theirs:
+        raise HTTPException(status_code=404, detail="opponent has no squad")
+
+    return {"entry_id": entry_id, "opponent_entry_id": opponent_id,
+            "opponent_name": opp.manager_name, "model": mv,
+            **compare_squads(mine, theirs, horizon=horizon)}
 
 
 def _xg_row(r: PlayerXg) -> dict:

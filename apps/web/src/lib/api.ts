@@ -93,6 +93,30 @@ export function getOptimize(base: string, entryId: number, horizon = 5, maxTrans
   ).then(asJson<Optimize>);
 }
 
+export type H2HPlayer = { player_id: number; web_name: string; position: string; xp: number };
+export type H2H = {
+  entry_id: number;
+  opponent_entry_id: number;
+  opponent_name: string;
+  model: string;
+  horizon: number;
+  your_xi_total: number;
+  their_xi_total: number;
+  margin: number;
+  your_captain: H2HPlayer | null;
+  their_captain: H2HPlayer | null;
+  same_captain: boolean;
+  shared_count: number;
+  your_differentials: H2HPlayer[];
+  their_differentials: H2HPlayer[];
+  strategy: string;
+};
+export function getH2H(base: string, entryId: number, opponentId: number, horizon = 5) {
+  return fetch(`${base}/entries/${entryId}/h2h/${opponentId}?horizon=${horizon}`, {
+    cache: "no-store",
+  }).then(asJson<H2H>);
+}
+
 export type ModelMetric = { n: number; mae: number; rmse: number; bias: number };
 export type Transparency = {
   models: string[];

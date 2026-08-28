@@ -146,6 +146,15 @@ price-change modelling and true chip simulation are follow-ups.
 
 The `/optimize` web page renders it with horizon / max-transfers selectors.
 
+## H2H Match Helper
+
+`fplguru-h2h` (pure) compares your squad to any manager's: each side's best XI + captain on
+Advanced xP, the projected points margin, the differentials both ways, captain divergence, and a
+template strategy line (ahead / behind / level, flags their top differential). `GET
+/entries/{id}/h2h/{opponent_id}?horizon=&model=` syncs the opponent via `sync_entry` (so it works
+for any FPL entry id, not just linked ones), then runs the comparison. The `/h2h` page takes an
+opponent id. v1 is a template strategy — an LLM-written one is a follow-up.
+
 ## Model transparency
 
 `GET /model/transparency?last=N` joins the last-computed `horizon_gw=1` projection for each finished

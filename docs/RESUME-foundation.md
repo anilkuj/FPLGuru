@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b/P2c/P2d/P4b shipped** (PRs #9–#17 merged). P4b = `fplguru_ml.eval.pointwise_metrics` + `GET /model/transparency` + **Model** tab on `/tools`. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **Next: P2f (H2H Match Helper)** — then P4a (Saved plans, needs P2d). Everything else (P3a-d, P1a-auth) is blocked on external keys/decisions.
+**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b/P2c/P2d/P4b shipped** (PRs #9–#17 merged) + **P2f (H2H Match Helper) built on `feature/p2f-h2h`** (Tasks 1–4 done, committed, not yet pushed) — `fplguru-h2h` pkg + `GET /entries/{id}/h2h/{opponent_id}` + `/h2h` web page. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **Next: P4a (Saved Optimization Plans)** — the last unblocked sub-plan. Everything else (P3a-d, P1a-auth) is blocked on external keys/decisions.
 **Last updated:** 2026-08-28.
-**Branch:** `main` (P4b merged `6ad3285`). **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
+**Branch:** `feature/p2f-h2h` (off `main`), not pushed — next: full sweep → review → PR → merge. **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
 
 ---
 
@@ -387,6 +387,25 @@ Plan: [`docs/plans/2026-08-28-p4b-model-transparency.md`](plans/2026-08-28-p4b-m
 **Caveat:** a finished GW's prediction rows are the last hourly `compute_xp` before it finished, **not** a deadline-locked snapshot. A `prediction_snapshot` table (worker writes once per GW at deadline) is the follow-up for a provably fair live backtest.
 
 **Verification:** `pytest -q -W error` → **235 passed**; `ruff` / `alembic check` clean; web `vitest run` → 26 passed; `next build` → success. **Merged to `main` as PR #17 (`6ad3285`).**
+
+---
+
+## P2f — H2H Match Helper (branch `feature/p2f-h2h`)
+
+Plan: [`docs/plans/2026-08-28-p2f-h2h-match-helper.md`](plans/2026-08-28-p2f-h2h-match-helper.md). Squad-vs-squad vs any FPL entry. **No migration.**
+
+| Task | What | Status |
+|---|---|---|
+| 1 | new pure pkg **`fplguru-h2h`** — `compare_squads(mine, theirs, *, horizon)` (best-XI margin via `fplguru_optimize.best_xi`, differentials both ways sorted by xp, captain divergence, shared count) + `template_strategy` (ahead ≥ +3 / behind ≤ −3 / level, appends their top differential ≥ 3 xP) | ✅ |
+| 2 | `GET /entries/{id}/h2h/{opponent_id}?horizon=1–10&model=` — `_linked_or_404` on me → `sync_entry(opponent_id)` (502 on failure) → load both squads' latest picks + horizon-summed adv predictions → `compare_squads`; 404 if either side has no squad | ✅ |
+| 3 | web `/h2h` — `getH2H` + types, nav item (`Swords`), `H2HView` (opponent-id `Input` persisted via `prefs`, margin `Badge` + strategy `Card`, captain chips, side-by-side differential `DataTable`s) | ✅ |
+| 4 | docs (README, master plan, this file) | ✅ |
+
+**Caveat:** the endpoint calls `sync_entry` (network) per request — it upserts the opponent into `linked_teams`, which is harmless (`/link` stays idempotent, nothing gates on "my teams"). A short-TTL skip is a follow-up. Template strategy only in v1.
+
+**Verification:** `pytest -q -W error` → **241 passed**; `ruff` / `alembic check` clean; web `vitest run` → 28 passed; `next build` → success (`/h2h` route).
+
+**Next:** whole-branch review → PR `feature/p2f-h2h` → `main`. Then only **P4a (Saved Optimization Plans)** remains unblocked.
 
 ---
 
