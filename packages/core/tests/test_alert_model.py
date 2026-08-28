@@ -14,3 +14,9 @@ def test_alert_table_and_dedup_uniqueness():
 def test_linked_team_has_alert_cap():
     col = LinkedTeam.__table__.c.alert_cap
     assert col.nullable is True
+
+
+def test_linked_team_has_reminder_offsets_default():
+    col = LinkedTeam.__table__.c.reminder_offsets
+    assert col.nullable is True
+    assert col.default is not None                       # python-side default supplies the presets
