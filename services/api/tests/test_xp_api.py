@@ -61,10 +61,51 @@ def test_model_version_matches_trained_artifact():
     import json
     from pathlib import Path
 
-    from fplguru_api.main import _MODEL_VERSION
+    from fplguru_api.main import _ADV_MODEL_VERSION, _MODEL_VERSION
 
     repo = Path(__file__).resolve().parents[3]
     meta = json.loads((repo / "packages/ml/artifacts/basic/meta.json").read_text())
     assert _MODEL_VERSION == meta["version"], (
         "api _MODEL_VERSION is out of sync with the committed model artifact"
     )
+    adv_meta = json.loads((repo / "packages/ml/artifacts/advanced/meta.json").read_text())
+    assert _ADV_MODEL_VERSION == adv_meta["version"], (
+        "api _ADV_MODEL_VERSION is out of sync with the committed advanced artifact"
+    )
+
+
+async def _seed_both_models(db_session):
+    await _seed(db_session)  # basic-v1 rows for player 11: gw4 xp 5.5, gw5 xp 4.0
+    for gw, h, xp in ((4, 1, 7.0), (5, 2, 6.0)):
+        db_session.add(PlayerGwPrediction(player_id=11, gameweek_id=gw, horizon_gw=h,
+                                          model_version="adv-v1", xp=xp,
+                                          xp_floor=xp - 1.5, xp_ceiling=xp + 2.5))
+    await db_session.commit()
+
+
+async def test_xp_auto_prefers_advanced_when_present(client, db_session):
+    await _seed_both_models(db_session)
+    rows = (await client.get("/xp?horizon=5")).json()
+    assert rows[0]["model"] == "adv-v1"
+    assert abs(rows[0]["xp_total"] - 13.0) < 1e-6  # 7.0 + 6.0
+
+
+async def test_xp_model_basic_overrides_auto(client, db_session):
+    await _seed_both_models(db_session)
+    rows = (await client.get("/xp?horizon=5&model=basic")).json()
+    assert rows[0]["model"] == "basic-v1"
+    assert abs(rows[0]["xp_total"] - 9.5) < 1e-6  # 5.5 + 4.0
+
+
+async def test_player_xp_reports_model_and_bands(client, db_session):
+    await _seed_both_models(db_session)
+    body = (await client.get("/players/11/xp?horizon=5")).json()
+    assert body["model"] == "adv-v1"
+    assert abs(body["xp_total"] - 13.0) < 1e-6
+    g = body["per_gw"][0]
+    assert g["floor"] == 5.5 and g["ceiling"] == 9.5
+    assert "x_goals" in g
+
+    basic = (await client.get("/players/11/xp?horizon=5&model=basic")).json()
+    assert basic["model"] == "basic-v1"
+    assert abs(basic["xp_total"] - 9.5) < 1e-6
