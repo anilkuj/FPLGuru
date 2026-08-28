@@ -11,10 +11,13 @@ from pydantic import BaseModel
 from sqlalchemy import desc, distinct, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from fplguru_api.llm import generate_within_budget
+from fplguru_captain import rank_captains, rationale_prompt
 from fplguru_core.db import dispose_engine, get_sessionmaker
 from fplguru_core.models import (
     DEFAULT_REMINDER_OFFSETS,
     Alert,
+    CaptainRationale,
     DataSyncLog,
     EntryGwHistory,
     EntryPick,
@@ -527,6 +530,93 @@ async def entry_rank_history(entry_id: int, db: AsyncSession = Depends(get_db)) 
          "points": r.points, "total_points": r.total_points}
         for r in rows
     ]
+
+
+def _template_rationale(pick: dict, kind: str, horizon: int) -> str:
+    scope = "your XI" if kind == "constrained" else "all players"
+    return (f"{pick['web_name']} ({pick['team_short']}) tops {scope} on projected points "
+            f"({pick['xp']}) over the next {horizon} gameweek(s).")
+
+
+async def _rationale_for(db: AsyncSession, gw_id: int, pick: dict, alts: list[dict], *,
+                         kind: str, horizon: int) -> tuple[str, str]:
+    cached = (await db.execute(
+        select(CaptainRationale).where(
+            CaptainRationale.player_id == pick["player_id"],
+            CaptainRationale.gameweek_id == gw_id,
+            CaptainRationale.kind == kind,
+        )
+    )).scalar_one_or_none()
+    if cached is not None:
+        return cached.text, "llm"
+    text = await generate_within_budget(
+        db, "captain", rationale_prompt(pick, alts, kind=kind, horizon=horizon),
+        max_output_tokens=160,
+    )
+    if text:
+        db.add(CaptainRationale(player_id=pick["player_id"], gameweek_id=gw_id, kind=kind,
+                                text=text, model=get_settings().gemini_model))
+        await db.commit()
+        return text, "llm"
+    return _template_rationale(pick, kind, horizon), "template"
+
+
+@app.get("/entries/{entry_id}/captain")
+async def entry_captain(entry_id: int, horizon: int = Query(3, ge=1, le=5),
+                        db: AsyncSession = Depends(get_db)) -> dict:
+    lt = await _linked_or_404(db, entry_id)
+    gw = (await db.execute(select(Gameweek).where(Gameweek.is_current))).scalar_one_or_none()
+    if gw is None:
+        gw = (await db.execute(select(Gameweek).where(Gameweek.is_next))).scalar_one_or_none()
+    gw_id = gw.id if gw else 0
+
+    xp_by_player = dict((await db.execute(
+        select(PlayerGwPrediction.player_id, func.sum(PlayerGwPrediction.xp))
+        .where(PlayerGwPrediction.model_version == _MODEL_VERSION,
+               PlayerGwPrediction.horizon_gw <= horizon)
+        .group_by(PlayerGwPrediction.player_id)
+    )).all())
+
+    players = (await db.execute(
+        select(Player, Team.short_name).join(Team, Team.id == Player.team_id)
+    )).all()
+    all_players = [
+        {"player_id": p.id, "web_name": p.web_name, "position": p.position,
+         "team_short": short, "xp": float(xp_by_player.get(p.id, 0.0))}
+        for p, short in players
+        if p.id in xp_by_player
+    ]
+
+    pick_gw = (await db.execute(
+        select(func.max(EntryPick.gameweek_id)).where(EntryPick.linked_team_id == lt.id)
+    )).scalar()
+    pick_rows = (await db.execute(
+        select(EntryPick.player_id, EntryPick.multiplier)
+        .where(EntryPick.linked_team_id == lt.id, EntryPick.gameweek_id == pick_gw)
+    )).all()
+    xi_ids = {pid for pid, mult in pick_rows if mult > 0}
+    squad_ids = {pid for pid, _ in pick_rows}
+    by_id = {p["player_id"]: p for p in all_players}
+    squad = [
+        {**by_id[pid], "in_xi": pid in xi_ids}
+        for pid in squad_ids if pid in by_id
+    ]
+
+    ranked = rank_captains(squad, all_players, top=5)
+    rationale: dict[str, str] = {}
+    source = "template"
+    for kind in ("constrained", "unconstrained"):
+        picks = ranked[kind]
+        if not picks:
+            rationale[kind] = "No candidates — link a full squad and wait for predictions."
+            continue
+        text, src = await _rationale_for(db, gw_id, picks[0], picks[1:], kind=kind,
+                                         horizon=horizon)
+        rationale[kind] = text
+        if src == "llm":
+            source = "llm"
+    return {"gameweek_id": gw_id, "horizon": horizon, **ranked,
+            "rationale": rationale, "rationale_source": source}
 
 
 def _player_dicts(rows: list[Player]) -> list[dict]:
