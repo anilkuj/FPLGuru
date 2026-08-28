@@ -300,7 +300,9 @@ async def _linked_or_404(db: AsyncSession, entry_id: int) -> LinkedTeam:
 
 
 @app.get("/entries/{entry_id}")
-async def get_entry(entry_id: int, db: AsyncSession = Depends(get_db)) -> dict:
+async def get_entry(entry_id: int,
+                    model: str = Query("auto", pattern="^(auto|basic|advanced)$"),
+                    db: AsyncSession = Depends(get_db)) -> dict:
     lt = await _linked_or_404(db, entry_id)
     latest_pick_gw = (await db.execute(
         select(func.max(EntryPick.gameweek_id)).where(EntryPick.linked_team_id == lt.id)
@@ -310,10 +312,10 @@ async def get_entry(entry_id: int, db: AsyncSession = Depends(get_db)) -> dict:
         .where(EntryPick.linked_team_id == lt.id, EntryPick.gameweek_id == latest_pick_gw)
         .order_by(EntryPick.slot)
     )).all()
+    mv = await _resolve_model_version(db, model)
     xp_by_player: dict[int, float] = {}
     if rows:
         pids = [pl.id for _, pl in rows]
-        mv = await _resolve_model_version(db)
         for pid, total in (await db.execute(
             select(PlayerGwPrediction.player_id, func.sum(PlayerGwPrediction.xp))
             .where(PlayerGwPrediction.player_id.in_(pids),
@@ -326,6 +328,7 @@ async def get_entry(entry_id: int, db: AsyncSession = Depends(get_db)) -> dict:
         "manager_name": lt.manager_name,
         "last_synced_at": lt.last_synced_at.isoformat() if lt.last_synced_at else None,
         "picks_gameweek_id": latest_pick_gw,
+        "model": mv,
         "picks": [
             {"slot": ep.slot, "player_id": pl.id, "web_name": pl.web_name,
              "position": pl.position, "now_cost": pl.now_cost, "multiplier": ep.multiplier,

@@ -19,11 +19,13 @@ export type EntryPick = {
   is_vice: boolean;
   xp: number;
 };
+export type XpModel = "auto" | "basic" | "advanced";
 export type Entry = {
   fpl_entry_id: number;
   manager_name: string;
   last_synced_at: string | null;
   picks_gameweek_id: number | null;
+  model?: string;
   picks: EntryPick[];
 };
 export type EntryHistoryRow = {
@@ -48,8 +50,9 @@ export function linkEntry(base: string, id: number) {
     asJson<{ fpl_entry_id: number; manager_name: string; linked_team_id: number }>,
   );
 }
-export function getEntry(base: string, id: number) {
-  return fetch(`${base}/entries/${id}`, { cache: "no-store" }).then(asJson<Entry>);
+export function getEntry(base: string, id: number, model: XpModel = "auto") {
+  const q = model === "auto" ? "" : `?model=${model}`;
+  return fetch(`${base}/entries/${id}${q}`, { cache: "no-store" }).then(asJson<Entry>);
 }
 export function getEntryHistory(base: string, id: number) {
   return fetch(`${base}/entries/${id}/history`, { cache: "no-store" }).then(asJson<EntryHistoryRow[]>);
