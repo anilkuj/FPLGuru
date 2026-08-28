@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b/P2c shipped** (PRs #9–#15 merged). P2c = `AdvancedXP.explain_row` occlusion attribution + `fplguru-explain` pkg + `xp_rationale` cache (`0012`) + `GET /players/{id}/xp/explain` + web squad "Why?" panel. P2b = pure-numpy per-position GBRT + quantile bands (`adv-v1`), `?model=` selector. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **Next: P2d (Optimize My Team)** — then P2f (H2H), P4b (Transparency), P4a (Saved plans, needs P2d).
+**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b/P2c shipped** (PRs #9–#15 merged) + **P2d (Optimize My Team) built on `feature/p2d-optimize`** (Tasks 1–5 done, committed, not yet pushed) — `fplguru-optimize` pkg (best XI / greedy transfers / chip hints) + `GET /entries/{id}/optimize` + `/optimize` web page. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **Next: P4b (Model Transparency)** or P2f (H2H) or P4a (Saved plans, needs P2d).
 **Last updated:** 2026-08-28.
-**Branch:** `main` (P2c merged `bb8e3e7`). **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
+**Branch:** `feature/p2d-optimize` (off `main`), not pushed — next: full sweep → review → PR → merge. **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
 
 ---
 
@@ -352,6 +352,26 @@ Plan: [`docs/plans/2026-08-28-p2c-llm-explanation.md`](plans/2026-08-28-p2c-llm-
 **Caveat:** xG driver features are 0.0 until PitchAPI id-mapping lands, so drivers currently lean on form / fixtures / minutes / price / opponent-concede. No Gemini key in CI ⇒ `source: "template"` in tests.
 
 **Verification:** `pytest -q -W error` → **220 passed**; `ruff` / `alembic check` clean; web `vitest run` → 22 passed; `next build` → success. **Merged to `main` as PR #15 (`bb8e3e7`).**
+
+---
+
+## P2d — Optimize My Team (branch `feature/p2d-optimize`)
+
+Plan: [`docs/plans/2026-08-28-p2d-optimize-my-team.md`](plans/2026-08-28-p2d-optimize-my-team.md). Recommended XI + transfers + chip hints off Advanced xP. **No migration.**
+
+| Task | What | Status |
+|---|---|---|
+| 1 | new pure pkg **`fplguru-optimize`** — `best_xi` (formation-aware XI over `_FORMATIONS`, captain = top XI xP, vice = 2nd, bench with reserve GK first); `SQUAD_SHAPE`, `HIT_COST` | ✅ |
+| 2 | `suggest_transfers` (greedy single-swap search, £bank + same-position + max-3-per-club, one plan per k=0..max_transfers, `net = gain - 4·max(0, k-free)`, sorted by net) + `chip_hints` (DGW≥3 → bench_boost + triple_captain; BGW≥4 → free_hit) | ✅ |
+| 3 | `GET /entries/{id}/optimize?horizon=1–10&max_transfers=0–3&free_transfers=&model=` — latest picks + horizon-summed predictions + top-40-per-position market + bank (`EntryGwHistory`, latest) + `gw_calendar`; returns `{current, transfer_plans, chips}` | ✅ |
+| 4 | web `/optimize` — `getOptimize` + types, nav item (`Wand2`), `OptimizeView` (horizon `1/3/5/8` + max-transfers `0/1/2/3` selectors via `prefs`, recommended-move card, chip chips, XI `DataTable` + bench line) | ✅ |
+| 5 | docs (README, master plan, this file) | ✅ |
+
+**Caveat:** greedy, not a global optimum; transfers kept same-position so the 15-shape stays legal without re-solving. Market pre-trimmed to top ~40 per position by xp for speed.
+
+**Verification:** `pytest -q -W error` → **230 passed**; `ruff` / `alembic check` clean; web `vitest run` → 24 passed; `next build` → success (`/optimize` route).
+
+**Next:** whole-branch review → PR `feature/p2d-optimize` → `main`. Then **P4a (Saved Optimization Plans)** is unblocked.
 
 ---
 
