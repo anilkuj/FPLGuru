@@ -82,6 +82,25 @@ ENTRY_PICKS = json.loads((FIX / "entry_picks_sample.json").read_text())
 def test_normalize_entry():
     assert normalize_entry(ENTRY) == {
         "fpl_entry_id": 7, "manager_name": "Sam Q", "started_event": 1, "favourite_team_id": 3,
+        "leagues": [
+            {"league_id": 111, "league_name": "Work League", "entry_rank": 4,
+             "entry_last_rank": 6},
+            {"league_id": 314, "league_name": "Overall", "entry_rank": 900000,
+             "entry_last_rank": 950000},
+        ],
+    }
+
+
+def test_normalize_league_standings_maps_rows():
+    from fplguru_ingest.fpl import normalize_league_standings
+
+    payload = json.loads((FIX / "league_standings_sample.json").read_text())
+    out = normalize_league_standings(111, payload)
+    assert out["league_name"] == "Work League"
+    assert out["has_next"] is True
+    assert out["rows"][0] == {
+        "league_id": 111, "entry_id": 7, "entry_name": "My Team", "player_name": "Sam Q",
+        "rank": 4, "last_rank": 6, "total": 512, "event_total": 61,
     }
 
 

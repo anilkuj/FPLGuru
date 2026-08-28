@@ -20,7 +20,9 @@ from fplguru_core.models import (
     EntryPick,
     Fixture,
     Gameweek,
+    LeagueStanding,
     LinkedTeam,
+    LinkedTeamLeague,
     Player,
     PlayerGwLive,
     PlayerGwPrediction,
@@ -448,6 +450,76 @@ async def push_unsubscribe(entry_id: int, body: _PushUnsubBody,
         await db.delete(r)
     await db.commit()
     return {"removed": len(rows)}
+
+
+def _delta(rank: int | None, last: int | None) -> int | None:
+    if rank is None or last is None or last == 0:
+        return None
+    return last - rank        # positive = moved up
+
+
+@app.get("/entries/{entry_id}/leagues")
+async def entry_leagues(entry_id: int, db: AsyncSession = Depends(get_db)) -> list[dict]:
+    lt = await _linked_or_404(db, entry_id)
+    rows = (await db.execute(
+        select(LinkedTeamLeague).where(LinkedTeamLeague.linked_team_id == lt.id)
+        .order_by(LinkedTeamLeague.entry_rank.is_(None), LinkedTeamLeague.entry_rank)
+    )).scalars().all()
+    return [
+        {"league_id": r.league_id, "league_name": r.league_name,
+         "entry_rank": r.entry_rank, "entry_last_rank": r.entry_last_rank,
+         "delta": _delta(r.entry_rank, r.entry_last_rank)}
+        for r in rows
+    ]
+
+
+@app.get("/leagues/{league_id}/standings")
+async def league_standings(league_id: int, limit: int = Query(50, ge=1, le=200),
+                           db: AsyncSession = Depends(get_db)) -> dict:
+    rows = (await db.execute(
+        select(LeagueStanding).where(LeagueStanding.league_id == league_id)
+        .order_by(LeagueStanding.rank).limit(limit)
+    )).scalars().all()
+    return {
+        "league_id": league_id,
+        "standings": [
+            {"entry_id": r.entry_id, "entry_name": r.entry_name, "player_name": r.player_name,
+             "rank": r.rank, "last_rank": r.last_rank, "total": r.total,
+             "event_total": r.event_total, "delta": _delta(r.rank, r.last_rank)}
+            for r in rows
+        ],
+    }
+
+
+@app.get("/leagues/{league_id}/search")
+async def league_search(league_id: int, q: str = Query(..., min_length=1),
+                        db: AsyncSession = Depends(get_db)) -> list[dict]:
+    like = f"%{q}%"
+    rows = (await db.execute(
+        select(LeagueStanding).where(
+            LeagueStanding.league_id == league_id,
+            LeagueStanding.entry_name.ilike(like) | LeagueStanding.player_name.ilike(like),
+        ).order_by(LeagueStanding.rank).limit(25)
+    )).scalars().all()
+    return [
+        {"entry_id": r.entry_id, "entry_name": r.entry_name, "player_name": r.player_name,
+         "rank": r.rank, "total": r.total}
+        for r in rows
+    ]
+
+
+@app.get("/entries/{entry_id}/rank-history")
+async def entry_rank_history(entry_id: int, db: AsyncSession = Depends(get_db)) -> list[dict]:
+    lt = await _linked_or_404(db, entry_id)
+    rows = (await db.execute(
+        select(EntryGwHistory).where(EntryGwHistory.linked_team_id == lt.id)
+        .order_by(EntryGwHistory.gameweek_id)
+    )).scalars().all()
+    return [
+        {"gameweek_id": r.gameweek_id, "overall_rank": r.overall_rank,
+         "points": r.points, "total_points": r.total_points}
+        for r in rows
+    ]
 
 
 @app.get("/players/{player_id}/xp")

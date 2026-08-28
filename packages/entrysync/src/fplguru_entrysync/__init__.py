@@ -9,7 +9,14 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from fplguru_core.db import get_sessionmaker
-from fplguru_core.models import DataSyncLog, EntryGwHistory, EntryPick, Gameweek, LinkedTeam
+from fplguru_core.models import (
+    DataSyncLog,
+    EntryGwHistory,
+    EntryPick,
+    Gameweek,
+    LinkedTeam,
+    LinkedTeamLeague,
+)
 from fplguru_core.settings import get_settings
 from fplguru_fpl_client import FplClient
 from fplguru_ingest.fpl import normalize_entry, normalize_entry_history, normalize_entry_picks
@@ -52,6 +59,7 @@ async def sync_entry(entry_id: int) -> int:
         await client.aclose()
 
     ent = normalize_entry(profile)
+    leagues = ent.pop("leagues", [])  # not a LinkedTeam column — handled below
     async with get_sessionmaker()() as session, session.begin():
         lt = (await session.execute(
             select(LinkedTeam).where(LinkedTeam.fpl_entry_id == entry_id)
@@ -69,6 +77,10 @@ async def sync_entry(entry_id: int) -> int:
 
         hist_rows = [{"linked_team_id": lt_id, **r} for r in normalize_entry_history(history)]
         await _upsert(session, EntryGwHistory, hist_rows, ("linked_team_id", "gameweek_id"))
+
+        league_rows = [{"linked_team_id": lt_id, **lg} for lg in leagues]
+        await _upsert(session, LinkedTeamLeague, league_rows,
+                      ("linked_team_id", "league_id"))
 
         n_picks = 0
         if latest_finished is not None:

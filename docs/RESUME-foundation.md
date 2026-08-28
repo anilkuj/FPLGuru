@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** **PHASE 1 COMPLETE.** ✅ Foundation (PR #1), P1c (PR #2), P1a (PR #3), P1d (PR #4), P1b (PR #5), P1e (PR #6), P1f (PR #7) all merged to `main`. **P1h PWA built on `feature/p1h-pwa`** (Tasks 1–7 done, Task 8 docs finishing; not yet pushed). Scope pivot 2026-08-27: product is **free, no Free/Pro tiers** — P1g (Stripe) + P4c (annual billing) dropped; P1a-auth optional. **Next session = Phase 2**, which is blocked on external decisions: xG data source (Understat vs Opta) for P2a, LLM provider + monthly budget for P2c/P3a-c, Telegram bot token for P2g. Unblocked Phase-2 work with no decision needed: P2h (leaderboard), P2i (free tools), P2d basic-tier optimizer.
+**Status:** **PHASE 1 COMPLETE** + **P2h shipped.** ✅ F (PR #1), P1c (#2), P1a (#3), P1d (#4), P1b (#5), P1e (#6), P1f (#7), P1h (#8) merged to `main`. **P2h Community Leaderboard built on `feature/p2h-leaderboard`** (Tasks 1–7 done, Task 8 docs finishing; not yet pushed). Scope pivot 2026-08-27: product is **free, no Free/Pro tiers** — P1g + P4c dropped; P1a-auth optional. **Phase-2 blocked on decisions:** xG source (Understat vs Opta) → P2a→P2b; LLM provider + monthly budget → P2c/P2e/P3a-c; Telegram bot token → P2g. **Unblocked Phase-2 next:** P2i (Free Tools — the non-xG parts), P2d basic optimizer.
 **Last updated:** 2026-08-27.
-**Branch:** `feature/p1h-pwa` (off `main`), not pushed.
+**Branch:** `feature/p2h-leaderboard` (off `main`), not pushed.
 
 ---
 
@@ -197,7 +197,30 @@ See `git log feature/p1h-pwa` for exact SHAs.
 
 **Push send is deploy-only.** `pywebpush` (→ `cryptography` + `aiohttp`) is deliberately **not** in `requirements-dev.txt` — SAC blocks that native tree on the dev box, and there's no HTTPS/real-subscription path to test it here anyway. `_send_web_push` imports it lazily; with no `FPLGURU_VAPID_PRIVATE_KEY` (the default) it logs and returns, and `_deliver_push`'s orchestration (targeting, `pushed_at` marking, 404/410 subscription pruning) is fully unit-tested with `_send_web_push` monkeypatched. To activate in production: `pip install pywebpush` in the worker image + set the three `FPLGURU_VAPID_*` env vars (`npx web-push generate-vapid-keys`).
 
-**Verification (repo state after Task 7):** `python -m pytest -q -W error` → **146 passed**, no warnings; `ruff` clean; `alembic check` clean; web `vitest run` → 11 passed; `next build` → success (`/alerts` etc. prerender; `sw.js` + icons served from `public/`).
+**Verification (repo state after Task 7):** `python -m pytest -q -W error` → **146 passed**, no warnings; `ruff` clean; `alembic check` clean; web `vitest run` → 11 passed; `next build` → success (`/alerts` etc. prerender; `sw.js` + icons served from `public/`). **Merged to `main` as PR #8 (`b1febc8`).**
+
+---
+
+## P2h — Community Leaderboard (branch `feature/p2h-leaderboard`)
+
+Plan: [`docs/plans/2026-08-27-p2h-community-leaderboard.md`](plans/2026-08-27-p2h-community-leaderboard.md). Executed inline, TDD per task. First Phase-2 sub-plan (unblocked — pure FPL-API data, depends only on P1a).
+
+| Task | What | Status |
+|---|---|---|
+| 1 | `linked_team_leagues` + `league_standings` tables (`0008`) | ✅ |
+| 2 | `FplClient.league_standings` + `normalize_entry` emits `leagues` + `normalize_league_standings` | ✅ |
+| 3 | `sync_entry` pops `leagues` off `ent` (not a `LinkedTeam` col!) and upserts `linked_team_leagues` | ✅ |
+| 4 | worker `_sync_league_standings` + task + `sync-league-standings` Beat (2h) | ✅ |
+| 5 | `GET /entries/{id}/leagues` \| `/leagues/{id}/standings` \| `/leagues/{id}/search` \| `/entries/{id}/rank-history` | ✅ |
+| 6+7 | web `getEntryLeagues`/`getLeagueStandings`/`searchLeague`/`getRankHistory` + `/leagues` + `/leagues/[id]` + `RankSparkline` + nav | ✅ |
+| 8 | docs (README Leagues section, master plan ✅, this file) | 🔧 finishing |
+See `git log feature/p2h-leaderboard` for exact SHAs.
+
+**Model:** `_delta(rank, last) = last - rank` (positive = climbed). Mini-leagues come from the entry profile's `leagues.classic`; `sync_league_standings` fetches page 1 (top 50) of each distinct tracked league. Manager search is `ILIKE` over stored `league_standings` scoped to one league. Rank history is just `entry_gw_history.overall_rank` (already synced by P1a).
+
+**Deviation from the plan:** the `normalize_entry` change (adds a `leagues` key) broke `sync_entry`'s `LinkedTeam(**ent, ...)` — Task 2's commit was briefly red for that reason; Task 3's `ent.pop("leagues", [])` fixed it. The branch HEAD is green; the intermediate commit is not (squash-merge, so it doesn't reach `main`).
+
+**Verification (repo state after Task 7):** `python -m pytest -q -W error` → **156 passed**, no warnings; `ruff` clean; `alembic check` clean; web `vitest run` → 14 passed; `next build` → success (`/leagues` static, `/leagues/[id]` dynamic — fetches client-side). **Live end-to-end not verified** (needs a linked team + a `sync_league_standings` run against the real API).
 
 ---
 
@@ -288,4 +311,10 @@ Final whole-branch review → merge `feature/foundation` → `main`.
 - **CI is untested** until pushed — the `.github/workflows/ci.yml` service-container + `fplguru_test` DB creation path (the `db_engine` fixture creates the DB) hasn't run on GitHub Actions yet.
 - **No lockfiles** on the Python side — deps are `>=` ranges (pydantic/fastapi have `<次` upper bounds; others don't). A constraints file was noted as a follow-up, not done.
 - **`pytest-xdist` unsupported** — single shared `fplguru_test` DB + truncate-after. Documented in `conftest.py`.
-- Nothing is pushed. `origin/main` still only has the two plan docs from the very first commit.
+- **Intermittent local full-suite flake** (seen from ~P2h on): a single worker DB test occasionally
+  errors/fails with an asyncpg `DBAPIError` under the full `pytest -q` run (different test each time —
+  `test_compute_xp`, `test_generate_alerts`), then passes in isolation and on a re-run. Root cause is
+  the session-scoped event loop + many async DB tests sharing one engine. **CI (Linux) has been
+  green on all 8 merged PRs.** Not yet chased down — candidate fix: function-scoped loop or an
+  engine dispose between worker-task tests.
+- `origin/main` is current through **PR #8 (`b1febc8`, Phase 1)** + **P2h** once its PR merges.

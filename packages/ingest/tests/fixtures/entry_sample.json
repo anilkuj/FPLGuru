@@ -1,2 +1,6 @@
 {"id": 7, "name": "My Team", "player_first_name": "Sam", "player_last_name": "Q",
- "started_event": 1, "favourite_team": 3}
+ "started_event": 1, "favourite_team": 3,
+ "leagues": {"classic": [
+   {"id": 111, "name": "Work League", "entry_rank": 4, "entry_last_rank": 6},
+   {"id": 314, "name": "Overall", "entry_rank": 900000, "entry_last_rank": 950000}
+ ]}}

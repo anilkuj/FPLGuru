@@ -7,6 +7,7 @@ def test_expected_tables_registered():
         "player_gw_stats", "player_gw_features", "player_gw_predictions",
         "linked_teams", "entry_gw_history", "entry_picks",
         "player_gw_live", "alerts", "push_subscriptions",
+        "linked_team_leagues", "league_standings",
     }
 
 

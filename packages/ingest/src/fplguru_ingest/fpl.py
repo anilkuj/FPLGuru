@@ -86,11 +86,39 @@ def normalize_fixtures(fixtures: list[dict[str, Any]]) -> list[dict]:
 def normalize_entry(payload: dict[str, Any]) -> dict:
     first = payload.get("player_first_name", "")
     last = payload.get("player_last_name", "")
+    leagues = [
+        {"league_id": lg["id"], "league_name": lg.get("name", ""),
+         "entry_rank": lg.get("entry_rank"), "entry_last_rank": lg.get("entry_last_rank")}
+        for lg in payload.get("leagues", {}).get("classic", [])
+    ]
     return {
         "fpl_entry_id": payload["id"],
         "manager_name": f"{first} {last}".strip(),
         "started_event": payload.get("started_event"),
         "favourite_team_id": payload.get("favourite_team"),
+        "leagues": leagues,
+    }
+
+
+def normalize_league_standings(league_id: int, payload: dict[str, Any]) -> dict:
+    st = payload.get("standings", {})
+    rows = [
+        {
+            "league_id": league_id,
+            "entry_id": r["entry"],
+            "entry_name": r.get("entry_name", ""),
+            "player_name": r.get("player_name", ""),
+            "rank": r["rank"],
+            "last_rank": r.get("last_rank"),
+            "total": r.get("total", 0),
+            "event_total": r.get("event_total", 0),
+        }
+        for r in st.get("results", [])
+    ]
+    return {
+        "league_name": payload.get("league", {}).get("name", ""),
+        "has_next": bool(st.get("has_next", False)),
+        "rows": rows,
     }
 
 

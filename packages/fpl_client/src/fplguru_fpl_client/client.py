@@ -82,3 +82,8 @@ class FplClient:
 
     async def entry_picks(self, entry_id: int, gameweek: int) -> dict:
         return await self._get(f"entry/{entry_id}/event/{gameweek}/picks/")
+
+    async def league_standings(self, league_id: int, page: int = 1) -> dict:
+        return await self._get(
+            f"leagues-classic/{league_id}/standings/?page_standings={page}"
+        )

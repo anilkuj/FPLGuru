@@ -36,6 +36,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <span className="text-gray-400">xP</span>
           <a href="/fdr">FDR</a>
           <a href="/live">Live</a>
+          <a href="/leagues">Leagues</a>
           <NavAlerts />
           <PwaSetup />
         </nav>
