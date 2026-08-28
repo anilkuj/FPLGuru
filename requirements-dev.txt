@@ -10,6 +10,8 @@
 -e ./packages/tools
 -e ./packages/llm
 -e ./packages/captain
+-e ./packages/pitch
+-e ./packages/pitchmatch
 -e ./services/api
 -e ./services/worker
 
