@@ -11,7 +11,7 @@
 > - Every feature marked "Pro" is just a feature, available to everyone. Horizon selectors expose the full 1–10 range to all users. Alert message caps become a user-configurable setting (default: uncapped).
 > - **P1a-auth** (accounts) is now *optional* — only for cross-device sync / saved preferences, and blocks nothing.
 > - Milestones M2/M3 drop their "Stripe in test mode" / "flip Stripe to live" criteria.
-> Remaining sub-plans after this override: **13** (F, P1a, P1b, P1c, P1d, P1e, P1f done; P1g + P4c dropped).
+> Remaining sub-plans after this override: **12** (F + all of Phase 1: P1a, P1b, P1c, P1d, P1e, P1f, P1h done; P1g + P4c dropped). **Phase 1 complete** — next is Phase 2, which needs external decisions (xG source, LLM budget, Telegram token).
 
 **Source of truth:** `PRD.md` (the document this plan is derived from). Section references below (`§5.3` etc.) point at that PRD.
 
@@ -109,7 +109,7 @@ Each sub-plan produces **working, testable software on its own** and has its own
 | **P1e** ✅ | Alerts Engine + Priority Ranking — *done* ([`2026-08-27-p1e-alerts-engine.md`](2026-08-27-p1e-alerts-engine.md), branch `feature/p1e-alerts`) | [Priority-ranking design doc](../design/2026-08-27-alert-priority-ranking.md); `fplguru-alerts` pkg (`score_alert` + `availability_alerts` + `dgw_bgw_alerts`); `alerts` table + `linked_teams.alert_cap` (`0005`); `generate_alerts` Beat task (30 min) with per-GW cap application; `GET /entries/{id}/alerts`, `POST .../alerts/seen`, `PATCH .../settings`; Next.js `/alerts` feed + nav unseen badge. **No tier / no "upgrade" message** — `alert_cap` is a nullable per-team int (default uncapped). Deferred: `price_change` / `fdr_shift` generators (need snapshots), **Web Push delivery → P1h** (owns VAPID + subscriptions; alert rows are already push-shaped). | F, P1a | §4.3, §3 |
 | **P1f** ✅ | Deadline Reminders — *done* ([`2026-08-27-p1f-deadline-reminders.md`](2026-08-27-p1f-deadline-reminders.md), branch `feature/p1f-deadline-reminders`) | `deadline_reminder_alerts` generator + `deadline` score weight (base 55, +15 when ≤60 min out); `linked_teams.reminder_offsets` JSON (`0006`, default `[1440,120,60,30]`); wired into `generate_alerts` for the nearest-future-deadline gameweek per team; `GET` + `PATCH /entries/{id}/settings` (offsets sanitised: positive, ≤4320 min, ≤7 entries); presets + free-text editor on `/alerts`. Fires through the same feed + nav badge as P1e (Web Push still P1h). | P1e | §4.4 |
 | ~~**P1g**~~ | ~~Subscriptions (Stripe) scaffold~~ — **DROPPED** (scope override: no payments) | — | — | — |
-| **P1h** | PWA | `manifest.json`, service worker (offline shell + last-known data cache), one-tap install prompt, Web Push subscription mgmt (VAPID), background sync. | P1a | §4.2 |
+| **P1h** ✅ | PWA — *done* ([`2026-08-27-p1h-pwa.md`](2026-08-27-p1h-pwa.md), branch `feature/p1h-pwa`) | Icons + `public/sw.js` (precache shell, network-first API with last-known-data fallback, `push` / `notificationclick` handlers); `PwaSetup` install-prompt island; `push_subscriptions` (`0007`) + `alerts.pushed_at`; `fplguru-push` targeting pkg; `deliver_push` Beat task (60s) sending the visible alert feed as Web Push — `pywebpush` is **optional / deploy-image-only** (SAC blocks its native tree locally), a logged no-op without a VAPID key; `GET /push/vapid-public-key` + `POST`/`DELETE /entries/{id}/push/subscribe`; `/alerts` push opt-in. Background Sync API queue deferred. **Phase 1 complete.** | P1a | §4.2 |
 
 ### Phase 2 — Core Differentiators
 
