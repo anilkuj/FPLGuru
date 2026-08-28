@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     vapid_public_key: str = ""
     vapid_private_key: str = ""
     vapid_subject: str = "mailto:admin@fplguru.local"
+    gemini_api_key: str = ""
+    gemini_base: str = "https://generativelanguage.googleapis.com/v1beta"
+    gemini_model: str = "gemini-2.0-flash"
+    llm_monthly_usd_cap: float = 5.0
 
 
 @lru_cache

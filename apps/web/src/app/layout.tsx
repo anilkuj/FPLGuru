@@ -38,6 +38,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <a href="/live">Live</a>
           <a href="/leagues">Leagues</a>
           <a href="/tools">Tools</a>
+          <a href="/captain">Captain</a>
           <NavAlerts />
           <PwaSetup />
         </nav>

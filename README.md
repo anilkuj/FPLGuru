@@ -192,6 +192,19 @@ sync):
 The FDR/xG/CS Snapshot tool lands with **P2a** (PitchAPI xG ingestion) — FDR alone is already at
 `GET /fdr`. `pick_overpowered_xi` / the template ignore the £100m budget + max-3-per-club for now.
 
+## AI Captain
+
+```bash
+#   GET /entries/{id}/captain?horizon=3
+```
+
+Ranks captain picks two ways — **constrained** (your starting XI) and **unconstrained** (any
+player) — by cumulative Basic xP over the horizon, and attaches a plain-English rationale from
+**Google Gemini** (plain REST, no SDK). Each rationale is cached per `(player, gameweek)` in
+`captain_rationale`; Gemini spend is tracked in `llm_calls` and calls are **skipped once
+`FPLGURU_LLM_MONTHLY_USD_CAP` is reached for the calendar month**. With no `FPLGURU_GEMINI_KEY`
+set, the endpoint still works and returns a templated summary (`rationale_source: "template"`).
+
 ## PWA
 
 The web app is installable (`manifest.json` + `public/sw.js`): the service worker precaches the

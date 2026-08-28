@@ -8,6 +8,7 @@ def test_expected_tables_registered():
         "linked_teams", "entry_gw_history", "entry_picks",
         "player_gw_live", "alerts", "push_subscriptions",
         "linked_team_leagues", "league_standings",
+        "llm_calls", "captain_rationale",
     }
 
 

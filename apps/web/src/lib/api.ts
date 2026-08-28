@@ -274,3 +274,25 @@ export function getOverpowered(base: string, horizon = 5) {
     asJson<OverpoweredXI>,
   );
 }
+
+export type CaptainPick = {
+  player_id: number;
+  web_name: string;
+  position: string;
+  team_short: string;
+  xp: number;
+};
+export type CaptainAdvice = {
+  gameweek_id: number;
+  horizon: number;
+  constrained: CaptainPick[];
+  unconstrained: CaptainPick[];
+  rationale: { constrained?: string; unconstrained?: string };
+  rationale_source: "llm" | "template";
+};
+
+export function getCaptain(base: string, entryId: number, horizon = 3) {
+  return fetch(`${base}/entries/${entryId}/captain?horizon=${horizon}`, {
+    cache: "no-store",
+  }).then(asJson<CaptainAdvice>);
+}
