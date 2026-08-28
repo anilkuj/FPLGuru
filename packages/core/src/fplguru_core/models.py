@@ -340,3 +340,46 @@ class CaptainRationale(_TimestampMixin, Base):
     kind: Mapped[str] = mapped_column(String(16))  # constrained | unconstrained
     text: Mapped[str] = mapped_column(String)
     model: Mapped[str] = mapped_column(String(48), default="")
+
+
+class PitchTeamMap(_TimestampMixin, Base):
+    __tablename__ = "pitch_team_map"
+    __table_args__ = (UniqueConstraint("pitch_team_id", name="uq_pitch_team_map_pitch_team_id"),)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    pitch_team_id: Mapped[str] = mapped_column(String(24))
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), index=True)
+    pitch_name: Mapped[str] = mapped_column(String(64), default="")
+
+
+class PitchPlayerMap(_TimestampMixin, Base):
+    __tablename__ = "pitch_player_map"
+    __table_args__ = (
+        UniqueConstraint("pitch_player_id", name="uq_pitch_player_map_pitch_player_id"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    pitch_player_id: Mapped[str] = mapped_column(String(24))
+    player_id: Mapped[int | None] = mapped_column(
+        ForeignKey("players.id"), nullable=True, index=True
+    )
+    pitch_name: Mapped[str] = mapped_column(String(64), default="")
+    method: Mapped[str] = mapped_column(String(12), default="auto")  # auto | manual | unmatched
+
+
+class PlayerXg(_TimestampMixin, Base):
+    """Per-player xG/xA for one fixture, from PitchAPI."""
+    __tablename__ = "player_xg"
+    __table_args__ = (
+        UniqueConstraint("player_id", "fixture_id", name="uq_player_xg_player_id_fixture_id"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
+    fixture_id: Mapped[int] = mapped_column(ForeignKey("fixtures.id"), index=True)
+    gameweek_id: Mapped[int] = mapped_column(ForeignKey("gameweeks.id"), index=True)
+    minutes: Mapped[int] = mapped_column(Integer, default=0)
+    xg: Mapped[float] = mapped_column(Float, default=0.0)
+    xg_ot: Mapped[float] = mapped_column(Float, default=0.0)
+    xag: Mapped[float] = mapped_column(Float, default=0.0)
+    key_passes: Mapped[int] = mapped_column(Integer, default=0)
+    chances_created: Mapped[int] = mapped_column(Integer, default=0)
+    vaep: Mapped[float] = mapped_column(Float, default=0.0)
+    pitch_match_id: Mapped[str] = mapped_column(String(24), default="")

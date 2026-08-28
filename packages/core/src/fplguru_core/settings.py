@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     gemini_base: str = "https://generativelanguage.googleapis.com/v1beta"
     gemini_model: str = "gemini-2.0-flash"
     llm_monthly_usd_cap: float = 5.0
+    pitchapi_key: str = ""
+    pitchapi_base: str = "https://api.pitchapi.dev/v1"
 
 
 @lru_cache
