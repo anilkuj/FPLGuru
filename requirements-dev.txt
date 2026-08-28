@@ -8,6 +8,8 @@
 -e ./packages/alerts
 -e ./packages/push
 -e ./packages/tools
+-e ./packages/llm
+-e ./packages/captain
 -e ./services/api
 -e ./services/worker
 

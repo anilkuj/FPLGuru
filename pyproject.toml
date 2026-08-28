@@ -15,7 +15,7 @@ select = ["E", "F", "I", "UP", "B"]
 known-first-party = [
     "fplguru_core", "fplguru_fpl_client", "fplguru_ingest",
     "fplguru_ml", "fplguru_api", "fplguru_worker", "fplguru_live", "fplguru_alerts",
-    "fplguru_push", "fplguru_tools",
+    "fplguru_push", "fplguru_tools", "fplguru_llm", "fplguru_captain",
 ]
 
 [tool.ruff.lint.flake8-bugbear]
