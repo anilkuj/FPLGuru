@@ -6,7 +6,13 @@ import { DataTable } from "@/components/DataTable";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { Badge, Button, Card, Skeleton } from "@/components/ui";
-import { type Entry, getEntry, type XpModel } from "@/lib/api";
+import {
+  type Entry,
+  getEntry,
+  getXpExplain,
+  type XpExplain,
+  type XpModel,
+} from "@/lib/api";
 import { getStoredEntryId } from "@/lib/entry";
 import { getPrefStr, setPrefStr } from "@/lib/prefs";
 
@@ -17,13 +23,19 @@ const MODEL_LABEL: Record<string, string> = {
   "basic-v1": "Basic",
 };
 
+type ExplainState = XpExplain | "loading" | "error";
+
 export function SquadTable() {
   const [entry, setEntry] = useState<Entry | null>(null);
   const [state, setState] = useState<"loading" | "nolink" | "error" | "ok">("loading");
   const [model, setModel] = useState<XpModel>(() => getPrefStr<XpModel>("xpModel", "advanced"));
+  const [openId, setOpenId] = useState<number | null>(null);
+  const [explains, setExplains] = useState<Record<number, ExplainState>>({});
 
   const load = useCallback((id: number, m: XpModel) => {
     setState("loading");
+    setOpenId(null);
+    setExplains({});
     getEntry(API, id, m)
       .then((e) => {
         setEntry(e);
@@ -46,6 +58,20 @@ export function SquadTable() {
     setPrefStr("xpModel", m);
   }
 
+  function toggleWhy(playerId: number) {
+    if (openId === playerId) {
+      setOpenId(null);
+      return;
+    }
+    setOpenId(playerId);
+    if (!explains[playerId]) {
+      setExplains((s) => ({ ...s, [playerId]: "loading" }));
+      getXpExplain(API, playerId, 3, "advanced")
+        .then((x) => setExplains((s) => ({ ...s, [playerId]: x })))
+        .catch(() => setExplains((s) => ({ ...s, [playerId]: "error" })));
+    }
+  }
+
   if (state === "nolink")
     return (
       <>
@@ -53,6 +79,9 @@ export function SquadTable() {
         <EmptyState title="No team linked" hint="Link your FPL team ID on the home page." />
       </>
     );
+
+  const advanced = model === "advanced";
+  const open = openId != null ? explains[openId] : undefined;
 
   return (
     <>
@@ -129,8 +158,57 @@ export function SquadTable() {
                     <Badge>V</Badge>
                   ) : null,
               },
+              ...(advanced
+                ? [
+                    {
+                      key: "why",
+                      header: "",
+                      align: "right" as const,
+                      render: (p: Entry["picks"][number]) => (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => toggleWhy(p.player_id)}
+                        >
+                          {openId === p.player_id ? "Hide" : "Why?"}
+                        </Button>
+                      ),
+                    },
+                  ]
+                : []),
             ]}
           />
+
+          {advanced && openId != null && (
+            <div className="mt-2 rounded-lg border border-border bg-surface-2 p-3 text-sm">
+              {open === "loading" && <Skeleton className="h-10 w-full" />}
+              {open === "error" && (
+                <p className="text-danger">Could not load the explanation.</p>
+              )}
+              {open && open !== "loading" && open !== "error" && (
+                <div className="space-y-2">
+                  <p className="font-medium">{open.web_name}</p>
+                  <p className="text-fg-muted">{open.text}</p>
+                  {open.drivers.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {open.drivers.map((d) => (
+                        <Badge
+                          key={d.feature}
+                          variant={d.direction === "up" ? "positive" : "danger"}
+                        >
+                          {d.direction === "up" ? "▲" : "▼"} {d.phrase}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[11px] uppercase tracking-wide text-fg-muted">
+                    {open.source === "llm" ? "AI-generated" : "auto summary"}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </Card>
       )}
     </>

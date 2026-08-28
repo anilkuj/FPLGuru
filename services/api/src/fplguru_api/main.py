@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -30,11 +31,17 @@ from fplguru_core.models import (
     Player,
     PlayerGwLive,
     PlayerGwPrediction,
+    PlayerGwStat,
     PlayerXg,
     PushSubscription,
     Team,
+    XpRationale,
 )
 from fplguru_core.settings import get_settings
+from fplguru_explain import DRIVER_PHRASES, explanation_prompt, template_explanation
+from fplguru_ml.features import wmean
+from fplguru_ml.model_advanced import AdvancedXP
+from fplguru_ml.serving import adv_feature_row
 from fplguru_tools import (
     gw_calendar,
     pick_overpowered_xi,
@@ -801,4 +808,132 @@ async def player_xp(player_id: int, horizon: int = Query(5, ge=1, le=5),
              "x_cs_or_gc": p.x_cs_or_gc, "x_bonus": p.x_bonus}
             for p in preds
         ],
+    }
+
+
+def _adv_artifact_dir() -> str:
+    return os.environ.get("FPLGURU_ADV_XP_ARTIFACT_DIR",
+                          get_settings().adv_xp_artifact_dir)
+
+
+async def _adv_drivers_and_fixtures(
+    db: AsyncSession, player: Player, horizon: int
+) -> tuple[list[tuple[str, float]], list[dict]]:
+    """(top occlusion drivers for this player's advanced xP, upcoming fixtures)."""
+    shorts = dict((await db.execute(select(Team.id, Team.short_name))).all())
+    fut = (await db.execute(
+        select(Fixture).join(Gameweek, Gameweek.id == Fixture.gameweek_id)
+        .where(Gameweek.finished.is_(False))
+        .order_by(Gameweek.deadline_time)
+    )).scalars().all()
+    fixtures: list[dict] = []
+    for f in fut:
+        if player.team_id == f.home_team_id:
+            fixtures.append({"opponent_short": shorts.get(f.away_team_id, "?"),
+                             "was_home": True, "difficulty": f.home_difficulty,
+                             "team_short": shorts.get(player.team_id, "")})
+        elif player.team_id == f.away_team_id:
+            fixtures.append({"opponent_short": shorts.get(f.home_team_id, "?"),
+                             "was_home": False, "difficulty": f.away_difficulty,
+                             "team_short": shorts.get(player.team_id, "")})
+        if len(fixtures) >= horizon:
+            break
+
+    stats = (await db.execute(
+        select(PlayerGwStat).join(Gameweek, Gameweek.id == PlayerGwStat.gameweek_id)
+        .where(PlayerGwStat.player_id == player.id, Gameweek.finished.is_(True),
+               PlayerGwStat.minutes > 0)
+        .order_by(PlayerGwStat.gameweek_id)
+    )).scalars().all()
+    history = [{"total_points": s.total_points, "minutes": s.minutes,
+               "goals": s.goals, "assists": s.assists} for s in stats]
+    if not fixtures or len(history) < 3:
+        return [], fixtures
+
+    opp_id = fut and next(
+        (f.away_team_id if f.home_team_id == player.team_id else f.home_team_id)
+        for f in fut if player.team_id in (f.home_team_id, f.away_team_id)
+    )
+    conceded = [
+        float(tp) for (tp,) in (await db.execute(
+            select(PlayerGwStat.total_points)
+            .join(Player, Player.id == PlayerGwStat.player_id)
+            .join(Gameweek, Gameweek.id == PlayerGwStat.gameweek_id)
+            .where(PlayerGwStat.opponent_team_id == opp_id,
+                   Player.position == player.position, Gameweek.finished.is_(True))
+        )).all()
+    ]
+    row = adv_feature_row(
+        history[-5:], was_home=fixtures[0]["was_home"], value=player.now_cost,
+        opp_conceded_to_pos_5=(wmean(conceded[-5:], 5) if conceded else 0.0),
+    )
+    if row is None:
+        return [], fixtures
+    try:
+        adv = AdvancedXP.load(_adv_artifact_dir())
+    except (FileNotFoundError, NotADirectoryError):
+        return [], fixtures
+    return adv.explain_row(player.position, row, top=3), fixtures
+
+
+@app.get("/players/{player_id}/xp/explain")
+async def player_xp_explain(player_id: int, horizon: int = Query(3, ge=1, le=5),
+                            model: str = Query("advanced",
+                                               pattern="^(auto|basic|advanced)$"),
+                            db: AsyncSession = Depends(get_db)) -> dict:
+    mv = await _resolve_model_version(db, model)
+    player = (await db.execute(
+        select(Player).where(Player.id == player_id)
+    )).scalar_one_or_none()
+    if player is None:
+        raise HTTPException(status_code=404, detail="unknown player")
+    preds = (await db.execute(
+        select(PlayerGwPrediction)
+        .where(PlayerGwPrediction.player_id == player_id,
+               PlayerGwPrediction.model_version == mv,
+               PlayerGwPrediction.horizon_gw <= horizon)
+        .order_by(PlayerGwPrediction.horizon_gw)
+    )).scalars().all()
+    if not preds:
+        raise HTTPException(status_code=404, detail="no predictions for player")
+    gw_id = preds[0].gameweek_id
+    xp_total = float(sum(p.xp for p in preds))
+    floor = float(sum(p.xp_floor for p in preds))
+    ceiling = float(sum(p.xp_ceiling for p in preds))
+
+    drivers, fixtures = await _adv_drivers_and_fixtures(db, player, horizon)
+    team_short = fixtures[0]["team_short"] if fixtures else ""
+    pj = {"web_name": player.web_name, "position": player.position, "team_short": team_short}
+
+    cached = (await db.execute(select(XpRationale).where(
+        XpRationale.player_id == player_id, XpRationale.gameweek_id == gw_id,
+        XpRationale.model_version == mv,
+    ))).scalar_one_or_none()
+    if cached is not None:
+        text, source = cached.text, "llm"
+    else:
+        text = await generate_within_budget(
+            db, "xp_explain",
+            explanation_prompt(pj, fixtures, drivers, xp=xp_total, floor=floor,
+                               ceiling=ceiling, horizon=horizon),
+            max_output_tokens=160,
+        )
+        if text:
+            db.add(XpRationale(player_id=player_id, gameweek_id=gw_id, model_version=mv,
+                               text=text, model=get_settings().gemini_model))
+            await db.commit()
+            source = "llm"
+        else:
+            text = template_explanation(pj, xp=xp_total, floor=floor, ceiling=ceiling,
+                                        drivers=drivers, horizon=horizon)
+            source = "template"
+    return {
+        "player_id": player_id, "web_name": player.web_name, "position": player.position,
+        "model": mv, "xp_total": xp_total, "floor": floor, "ceiling": ceiling,
+        "drivers": [
+            {"feature": n, "phrase": DRIVER_PHRASES.get(n, n),
+             "direction": "up" if d >= 0 else "down"}
+            for n, d in drivers
+        ],
+        "text": text, "source": source,
     }

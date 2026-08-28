@@ -28,10 +28,11 @@ from fplguru_core.models import (
     PlayerGwStat,
 )
 from fplguru_core.settings import get_settings
-from fplguru_ml.features import ADV_EXTRA_FEATURES, feature_row_from_history, wmean
+from fplguru_ml.features import feature_row_from_history, wmean
 from fplguru_ml.model_advanced import AdvancedXP
 from fplguru_ml.model_basic import BasicXP
 from fplguru_ml.rollout import band_halfwidth, project_horizon
+from fplguru_ml.serving import to_adv_row
 
 logger = logging.getLogger("fplguru.worker")
 
@@ -53,12 +54,6 @@ def _load_adv() -> AdvancedXP | None:
         return AdvancedXP.load(_adv_artifact_dir())
     except (FileNotFoundError, NotADirectoryError):
         return None
-
-
-def _adv_feature_row(fr: dict) -> dict:
-    """Basic 9-feature row extended with the advanced xG features (0.0 until a
-    PitchAPI id mapping exists)."""
-    return {**fr, **{k: 0.0 for k in ADV_EXTRA_FEATURES}}
 
 
 def _component_split(position: str, fr: dict, xp: float) -> dict:
@@ -199,7 +194,7 @@ async def compute_and_store_xp(horizon: int = 5) -> int:
                 continue
 
             if triples:
-                adv_rows_in = [_adv_feature_row(t[2]) for t in triples]
+                adv_rows_in = [to_adv_row(t[2]) for t in triples]
                 mids = adv.predict_rows(p.position, adv_rows_in)
                 lows, highs = adv.predict_bands(p.position, adv_rows_in)
                 for (hz, gw_id, fr), xp, lo, hi in zip(
