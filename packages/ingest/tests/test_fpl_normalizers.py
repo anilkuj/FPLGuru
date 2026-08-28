@@ -52,6 +52,16 @@ def test_normalize_fixtures_handles_null_event_and_kickoff():
     assert rows[1]["home_difficulty"] == 4
 
 
+def test_normalize_fixtures_carries_match_state():
+    rows = normalize_fixtures(FIXTURES)
+    assert rows[0]["started"] is True
+    assert rows[0]["minutes"] == 63
+    assert rows[0]["finished_provisional"] is False
+    # missing keys default safely
+    assert rows[1]["started"] is False
+    assert rows[1]["minutes"] == 0
+
+
 EVENT_LIVE = json.loads((FIX / "event_live_sample.json").read_text())
 
 

@@ -1,7 +1,10 @@
+import asyncio
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from fplguru_entrysync import sync_entry
 from fplguru_fdr import compute_fdr
 from sqlalchemy import desc, distinct, func, select, text
@@ -16,9 +19,11 @@ from fplguru_core.models import (
     Gameweek,
     LinkedTeam,
     Player,
+    PlayerGwLive,
     PlayerGwPrediction,
     Team,
 )
+from fplguru_core.settings import get_settings
 
 _MODEL_VERSION = "basic-v1"
 
@@ -83,10 +88,78 @@ async def current_gameweek(db: AsyncSession = Depends(get_db)) -> dict | None:
     return _gw(row) if row else None
 
 
+async def _live_snapshot(db: AsyncSession) -> dict:
+    gw = (await db.execute(select(Gameweek).where(Gameweek.is_current))).scalar_one_or_none()
+    if gw is None:
+        gw = (await db.execute(select(Gameweek).where(Gameweek.is_next))).scalar_one_or_none()
+    if gw is None:
+        return {"gameweek_id": None, "updated_at": None, "fixtures": [], "players": []}
+
+    fx = (await db.execute(
+        select(Fixture).where(Fixture.gameweek_id == gw.id)
+        .order_by(Fixture.kickoff_time, Fixture.id)
+    )).scalars().all()
+    paired = (await db.execute(
+        select(PlayerGwLive, Player)
+        .join(Player, Player.id == PlayerGwLive.player_id)
+        .where(PlayerGwLive.gameweek_id == gw.id)
+        .order_by(PlayerGwLive.total_points.desc(), PlayerGwLive.bps.desc())
+    )).all()
+    updated = max((lv.updated_at for lv, _ in paired), default=None)
+    return {
+        "gameweek_id": gw.id,
+        "updated_at": updated.isoformat() if updated else None,
+        "fixtures": [
+            {"id": f.id, "home_team_id": f.home_team_id, "away_team_id": f.away_team_id,
+             "home_score": f.home_score, "away_score": f.away_score,
+             "started": f.started, "finished": f.finished, "minutes": f.minutes}
+            for f in fx
+        ],
+        "players": [
+            {"player_id": lv.player_id, "web_name": p.web_name, "team_id": p.team_id,
+             "position": p.position, "minutes": lv.minutes, "live_points": lv.live_points,
+             "bps": lv.bps, "projected_bonus": lv.projected_bonus,
+             "total_points": lv.total_points}
+            for lv, p in paired
+        ],
+    }
+
+
+@app.get("/gameweeks/current/live")
+async def live_snapshot(db: AsyncSession = Depends(get_db)) -> dict:
+    return await _live_snapshot(db)
+
+
+async def _live_event_stream(request: Request, poll_seconds: float) -> AsyncIterator[str]:
+    sentinel = object()
+    last: object = sentinel
+    while True:
+        async with get_sessionmaker()() as db:
+            snap = await _live_snapshot(db)
+        if snap["updated_at"] != last:
+            last = snap["updated_at"]
+            yield f"data: {json.dumps(snap)}\n\n"
+        else:
+            yield ": keepalive\n\n"
+        await asyncio.sleep(poll_seconds)
+        if await request.is_disconnected():
+            break
+
+
+@app.get("/gameweeks/current/live/stream")
+async def live_stream(request: Request) -> StreamingResponse:
+    poll_seconds = get_settings().live_stream_poll_seconds
+    return StreamingResponse(
+        _live_event_stream(request, poll_seconds),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/status")
 async def status(db: AsyncSession = Depends(get_db)) -> dict:
     sources: dict[str, dict] = {}
-    known = {"fpl_bootstrap", "fpl_fixtures"}
+    known = {"fpl_bootstrap", "fpl_fixtures", "live_poll"}
     present = set((await db.execute(select(distinct(DataSyncLog.source)))).scalars().all())
     for source in sorted(known | present):
         row = (

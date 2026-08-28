@@ -75,6 +75,9 @@ def normalize_fixtures(fixtures: list[dict[str, Any]]) -> list[dict]:
             "finished": bool(f["finished"]),
             "home_score": f.get("team_h_score"),
             "away_score": f.get("team_a_score"),
+            "started": bool(f.get("started", False)),
+            "finished_provisional": bool(f.get("finished_provisional", False)),
+            "minutes": int(f.get("minutes", 0) or 0),
         }
         for f in fixtures
     ]

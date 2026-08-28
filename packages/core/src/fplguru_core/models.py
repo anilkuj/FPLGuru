@@ -93,6 +93,11 @@ class Fixture(_TimestampMixin, Base):
     finished: Mapped[bool] = mapped_column(Boolean, default=False)
     home_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     away_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    started: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    finished_provisional: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
+    minutes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class DataSyncLog(Base):
@@ -125,6 +130,25 @@ class PlayerGwStat(_TimestampMixin, Base):
     was_home: Mapped[bool] = mapped_column(Boolean, default=False)
     opponent_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
     value: Mapped[int] = mapped_column(Integer, default=0)  # price at that GW, tenths
+
+
+class PlayerGwLive(_TimestampMixin, Base):
+    """Provisional in-play scoring for the current gameweek: live points
+    (excl. bonus) + a BPS-derived bonus projection. Superseded by
+    player_gw_stats once the gameweek is finished."""
+    __tablename__ = "player_gw_live"
+    __table_args__ = (
+        UniqueConstraint("player_id", "gameweek_id",
+                         name="uq_player_gw_live_player_id_gameweek_id"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
+    gameweek_id: Mapped[int] = mapped_column(ForeignKey("gameweeks.id"), index=True)
+    minutes: Mapped[int] = mapped_column(Integer, default=0)
+    live_points: Mapped[int] = mapped_column(Integer, default=0)  # excludes bonus
+    bps: Mapped[int] = mapped_column(Integer, default=0)
+    projected_bonus: Mapped[int] = mapped_column(Integer, default=0)
+    total_points: Mapped[int] = mapped_column(Integer, default=0)  # live_points + projected_bonus
 
 
 class PlayerGwFeature(_TimestampMixin, Base):
