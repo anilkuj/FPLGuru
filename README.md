@@ -104,6 +104,14 @@ five expected-goals features (`form_xg_5`, `form_xa_5`, `xg_overperf_5`, `form_x
 until a PitchAPI key populates `player_xg` with an FPL id mapping** — the GBRT then still predicts
 from the nine shared FPL features, so `adv-v1` is live regardless.
 
+**Explanations** — `AdvancedXP.explain_row` runs a cheap **occlusion attribution** (swap each
+feature to its position median, measure the shift in the mean prediction) to rank the top ~3
+drivers. `fplguru-explain` turns those + the upcoming fixtures into a Gemini prompt via
+`generate_within_budget` (`xp_explain` feature, monthly-cap ledger from P2e); the text is cached in
+`xp_rationale`, with a deterministic template fallback when the LLM is unconfigured / over budget.
+`GET /players/{id}/xp/explain?horizon=&model=` → `{drivers[], text, source}`; the web squad view
+has a per-row "Why?" panel. (Proper SHAP / tree-path attribution is a follow-up.)
+
 ```bash
 # one-time: pull historical data (gitignored)
 python scripts/fetch_historical.py 2022-23 2023-24 2024-25
@@ -120,6 +128,7 @@ python scripts/backtest_adv_xp.py --csv data/historical/2024-25_merged_gw.csv   
 #   GET /xp?horizon=5&model=auto|basic|advanced   -> ranked by cumulative xP (auto = adv if present)
 #   GET /players/{id}/xp?horizon=5&model=...       -> per-gameweek breakdown + floor/ceiling + x_*
 #   GET /entries/{id}?model=...                    -> squad with per-model xP (web has a toggle)
+#   GET /players/{id}/xp/explain?horizon=3&model=advanced  -> drivers + plain-English rationale
 ```
 
 ## Fixture difficulty (FDR)

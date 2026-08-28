@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b shipped** (PRs #9–#14 merged). P2b = pure-numpy per-position GBRT + quantile floor/ceiling bands served as `adv-v1` beside `basic-v1`, `?model=` selector, web squad toggle; adv beats basic RMSE on all 4 positions. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **Next: P2c (LLM Explanation Layer)** — now unblocked. Also unblocked: P2d optimizer, P2f H2H.
+**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b shipped** (PRs #9–#14 merged) + **P2c (LLM Explanation Layer) built on `feature/p2c-llm-explanation`** (Tasks 1–6 done, committed, not yet pushed) — `AdvancedXP.explain_row` occlusion attribution + `fplguru-explain` pkg + `xp_rationale` cache (`0012`) + `GET /players/{id}/xp/explain` + web squad "Why?" panel. P2b = pure-numpy per-position GBRT + quantile bands (`adv-v1`), `?model=` selector; adv beats basic RMSE on all 4 positions. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **Next: P2d (Optimize My Team)** or P2f (H2H) or P4b (Transparency) — all unblocked.
 **Last updated:** 2026-08-28.
-**Branch:** `main` (P2b merged `eb29b8a`). **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
+**Branch:** `feature/p2c-llm-explanation` (off `main`), not pushed — next: full sweep → review → PR → merge. **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
 
 ---
 
@@ -334,7 +334,26 @@ Plan: [`docs/plans/2026-08-28-p2b-advanced-xp.md`](plans/2026-08-28-p2b-advanced
 
 **Verification:** `pytest -q -W error` → **209 passed**; `ruff` / `alembic check` clean; web `vitest run` → 20 passed; `next build` → success. **Merged to `main` as PR #14 (`eb29b8a`).**
 
-**Next:** **P2c (LLM Explanation Layer)** is unblocked.
+---
+
+## P2c — LLM Explanation Layer (branch `feature/p2c-llm-explanation`)
+
+Plan: [`docs/plans/2026-08-28-p2c-llm-explanation.md`](plans/2026-08-28-p2c-llm-explanation.md). Plain-English rationale for a player's Advanced-xP projection, on demand + cached.
+
+| Task | What | Status |
+|---|---|---|
+| 1 | `AdvancedXP.explain_row` (occlusion-at-median local attribution) + persisted per-position `feature_medians` in `meta.json`; retrained `adv-v1` artifacts (only `meta.json` changed — trees are seed-deterministic) | ✅ |
+| 2 | new pure pkg **`fplguru-explain`** — `DRIVER_PHRASES`, `explanation_prompt`, `template_explanation`; wired into `known-first-party` + `requirements-dev.txt` | ✅ |
+| 3 | `XpRationale` model + `xp_rationale` table (`0012`, one `create_table`, only `updated_at` like `captain_rationale`); models exact-set test updated | ✅ |
+| 4 | shared `fplguru_ml.serving.{to_adv_row,adv_feature_row}` (worker `xp.py` refactored to use it) + `GET /players/{id}/xp/explain?horizon=&model=` — resolves model, sums predictions for the band, `_adv_drivers_and_fixtures` builds the served row + upcoming fixtures, `generate_within_budget("xp_explain", ...)` cached in `xp_rationale`, template fallback | ✅ |
+| 5 | web: `getXpExplain` + `XpExplain` type; `SquadTable` per-row "Why?" toggle → inline panel (rationale + ▲/▼ driver chips + `llm`/`template` tag), Advanced model only | ✅ |
+| 6 | docs (README, master plan, this file) | ✅ |
+
+**Caveat:** xG driver features are 0.0 until PitchAPI id-mapping lands, so drivers currently lean on form / fixtures / minutes / price / opponent-concede. No Gemini key in CI ⇒ `source: "template"` in tests.
+
+**Verification:** `pytest -q -W error` → **220 passed**; `ruff` / `alembic check` clean; web `vitest run` → 22 passed; `next build` → success.
+
+**Next:** whole-branch review → PR `feature/p2c-llm-explanation` → `main`. Then **P2d / P2f / P4b** are all open.
 
 ---
 
