@@ -1,8 +1,8 @@
 # FPLGuru Foundation — Resume / Handoff
 
-**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b/P2c/P2d/P4b shipped** (PRs #9–#17 merged) + **P2f (H2H Match Helper) built on `feature/p2f-h2h`** (Tasks 1–4 done, committed, not yet pushed) — `fplguru-h2h` pkg + `GET /entries/{id}/h2h/{opponent_id}` + `/h2h` web page. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **Next: P4a (Saved Optimization Plans)** — the last unblocked sub-plan. Everything else (P3a-d, P1a-auth) is blocked on external keys/decisions.
+**Status:** **PHASE 1 COMPLETE** + **P2h/P2i/P2e/P2a/P1i/P2b/P2c/P2d/P4b/P2f shipped** (PRs #9–#18 merged). P2f = `fplguru-h2h` pkg + `GET /entries/{id}/h2h/{opponent_id}` + `/h2h` web page. Scope pivot 2026-08-27: **free, no tiers**. **Decided:** xG → **PitchAPI** (`FPLGURU_PITCHAPI_KEY`); LLM → **Google Gemini** (`FPLGURU_GEMINI_KEY`, `$5/mo` cap). **Telegram (P2g) deferred.** **Next: P4a (Saved Optimization Plans)** — the last unblocked sub-plan. Everything else (P3a-d, P1a-auth) is blocked on external keys/decisions.
 **Last updated:** 2026-08-28.
-**Branch:** `feature/p2f-h2h` (off `main`), not pushed — next: full sweep → review → PR → merge. **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
+**Branch:** `main` (P2f merged `f27f772`); P4a in progress on `feature/p4a-saved-plans`. **App runs locally:** API `python -m uvicorn fplguru_api.main:app --port 8000`, web `pnpm --filter web dev` (:3000).
 
 ---
 
@@ -403,9 +403,7 @@ Plan: [`docs/plans/2026-08-28-p2f-h2h-match-helper.md`](plans/2026-08-28-p2f-h2h
 
 **Caveat:** the endpoint calls `sync_entry` (network) per request — it upserts the opponent into `linked_teams`, which is harmless (`/link` stays idempotent, nothing gates on "my teams"). A short-TTL skip is a follow-up. Template strategy only in v1.
 
-**Verification:** `pytest -q -W error` → **241 passed**; `ruff` / `alembic check` clean; web `vitest run` → 28 passed; `next build` → success (`/h2h` route).
-
-**Next:** whole-branch review → PR `feature/p2f-h2h` → `main`. Then only **P4a (Saved Optimization Plans)** remains unblocked.
+**Verification:** `pytest -q -W error` → **241 passed**; `ruff` / `alembic check` clean; web `vitest run` → 28 passed; `next build` → success (`/h2h` route). **Merged to `main` as PR #18 (`f27f772`).**
 
 ---
 
